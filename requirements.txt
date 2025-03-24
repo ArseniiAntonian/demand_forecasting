@@ -4,3 +4,6 @@ ipykernel
 numpy
 seaborn
 scikit-learn
+statsmodels
+xgboost
+keras
