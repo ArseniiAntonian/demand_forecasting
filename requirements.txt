@@ -1,9 +1,8 @@
+torch==2.0.1
+pytorch-lightning==1.9.5
+pytorch-forecasting==1.0.0
+numpy
 pandas
 matplotlib
-ipykernel
-numpy
-seaborn
 scikit-learn
-statsmodels
-xgboost
-keras
+jupyter
