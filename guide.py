@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from statsmodels.tsa.seasonal import seasonal_decompose
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
 from statsmodels.tsa.stattools import adfuller
+from statsmodels.tsa.vector_ar.vecm import coint_johansen
 from statsmodels.tsa.api import VAR
 
 
@@ -32,17 +33,20 @@ def load_data(oil_data_path, freight_data_path):
 def check_stationarity(series):
     """Проверяет стационарность временного ряда с помощью ADF-теста."""
     adf_result = adfuller(series)
-    return adf_result[1] < 0.05  # True, если ряд стационарен
+    print(f"Проверка стационарности: \n{adf_result}")
+    return adf_result[1] < 0.05 
 
 
 def preprocess_data(df, seasonal_lag=12):
     """Проверяет стационарность и делает сезонное и обычное дифференцирование, если нужно."""
     for column in df.columns:
         if not check_stationarity(df[column]):
+            print(f"diff lag 12 {column}")
             df[column] = df[column].diff(seasonal_lag)
             df.dropna(inplace=True)  # Удаляем NaN
             
             if not check_stationarity(df[column]):
+                print(f"diff lag 1 {column}")
                 df.loc[:, column] = df[column].diff()  # Убираем тренд
                 df.dropna(inplace=True)  # Удаляем NaN снова
 
@@ -114,6 +118,7 @@ class VARModel:
 
         # Восстанавливаем предсказанные и тестовые значения
         forecast_df["Price_freight"] = invert_differencing(self.train_data["Price_freight"], forecast_df["Price_freight"], interval=12)
+        # print(forecast_df.head(12))
         test_data_restored = invert_differencing(self.train_data["Price_freight"], self.test_data["Price_freight"], interval=12)
 
         # Убираем NaN после восстановления
@@ -137,8 +142,18 @@ class VARModel:
 
 # --- Основной скрипт ---
 if __name__ == "__main__":
-    df = load_data("data/monthly_oil_cost_1988-2025.csv", "data/freight_cost.csv")
+    df = load_data("data/monthly_oil_cost_1988-2025.csv", "data/cleanFreight.csv")
+
     df = preprocess_data(df)
-    model = VARModel(df)
+    plt.figure(figsize=(12, 6))
+    plt.plot(df.index, df['Price_freight'], label="Преобразованный фрахт", color='green')
+    plt.plot(df.index, df['Price_oil'], label="Преобразованная нефть", color='blue')
+
+    plt.xlabel("Date")
+    plt.ylabel("Freight Price")
+    plt.title("VAR Forecast vs. Actual Data (Restored Scale)")
+    plt.legend()
+    plt.show()
+    model = VARModel(df, train_size=0.9)
     model.fit()
     model.plot_results()
