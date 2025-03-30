@@ -13,3 +13,6 @@ keras
 torch
 pytorch-lightning
 pytorch-forecasting
+
+tensorflow
+keras-tcn
