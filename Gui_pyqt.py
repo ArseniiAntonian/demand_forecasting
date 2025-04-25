@@ -114,34 +114,30 @@ class ForecastWindow(QMainWindow):
                 y_train, y_test, y_pred = m.forecast_lgb(events_dict)
                 self._plot_lgb(y_train, y_test, y_pred)
             else:
-                x,y = m.run_forecast(self.events)
-                self._plot_generic(x,y)
+                for t,s,e in self.events: events_dict.setdefault(t, []).append((s,e))
+                pred_df,df = m.forecast_seq2seq(self.events)
+                self._plot_generic(pred_df,df)
         except Exception as ex:
             QMessageBox.critical(self, "Ошибка при выполнении модели", str(ex))
 
     def _plot_prophet(self, train, test):
         self.ax.clear()
-        self.ax.plot(train['Date'], train['Freight_Price'], label='Тренировочные')
-        self.ax.plot(test['Date'], test['Freight_Price'], label='Тест')
-        self.ax.plot(test['Date'], test['yhat_exp'], '--', label='Прогноз')
+        self.ax.plot(train['Date'], train['Freight_Price'], label='Тренировочные', color='blue')
+        self.ax.plot(test['Date'], test['Freight_Price'], label='Тест', color='blue')
+        self.ax.plot(test['Date'], test['yhat_exp'], '--', label='Прогноз', color='red')
         self._finalize()
 
     def _plot_lgb(self, y_train, y_test, y_pred):
         self.ax.clear()
-        self.ax.plot(y_train.index, y_train.values, label='Тренировочные')
-        self.ax.plot(y_test.index, y_test.values, label='Тест')
-        self.ax.plot(y_test.index, y_pred, '--', label='Прогноз')
+        self.ax.plot(y_train.index, y_train.values, label='Тренировочные', color='blue')
+        self.ax.plot(y_test.index, y_test.values, label='Тест', color='blue')
+        self.ax.plot(y_test.index, y_pred, '--', label='Прогноз', color='red')
         self._finalize()
 
-    def _plot_generic(self, x, y):
-        try:
-            x = list(x); y = list(y)
-        except: x = list(x.index); y = list(y)
-        if len(x)!=len(y):
-            QMessageBox.critical(self, "Ошибка данных", "Размеры x и y не совпадают")
-            return
+    def _plot_generic(self, pred_df, df):
         self.ax.clear()
-        self.ax.plot(x, y, label='Прогноз')
+        self.ax.plot(pred_df, label='Прогноз', color='red', linestyle='--')
+        self.ax.plot(df['Freight_Price'], label='Истинное значение', color='blue')
         self._finalize()
 
     def _finalize(self):
