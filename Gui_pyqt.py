@@ -137,7 +137,7 @@ class ForecastWindow(QMainWindow):
     def _plot_generic(self, pred_df, df):
         self.ax.clear()
         self.ax.plot(pred_df, label='Прогноз', color='red', linestyle='--')
-        self.ax.plot(df['Freight_Price'], label='Истинное значение', color='blue')
+        self.ax.plot(df['Freight_Price'], label='Тренировочные', color='blue')
         self._finalize()
 
     def _finalize(self):
