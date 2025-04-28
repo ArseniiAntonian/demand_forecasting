@@ -18,6 +18,7 @@ MODELS = {
     "LightGBM": "arsen/gb.py"
 }
 EVENT_TYPES = ["Кризис", "Война"]
+OIL_FORECAST_TYPES = ["walletinvestor", "EFA forecast"]
 
 class ForecastWindow(QMainWindow):
     def __init__(self):
@@ -30,18 +31,12 @@ class ForecastWindow(QMainWindow):
         central = QWidget()
         main_v = QVBoxLayout(central)
 
-        # Убираем заголовок, чтобы сгладить интерфейс
-# (удален блок lbl_title)
-
         # график
-        # Создаем фигуру и ось с увеличенным размером
         tmp_figsize = (12, 6)
         self.fig, self.ax = plt.subplots(figsize=tmp_figsize)
         self.canvas = FigureCanvas(self.fig)
         main_v.addWidget(self.canvas)
-        # Дополнительный отступ между графиком и контролами
         main_v.addSpacing(40)
-        # Добавляем отступ для снижения плотности интерфейса
         main_v.addSpacing(20)
 
         # контролы
@@ -52,6 +47,12 @@ class ForecastWindow(QMainWindow):
         self.cmb_model.addItems(MODELS.keys())
         controls.addWidget(QLabel("Модель:"))
         controls.addWidget(self.cmb_model)
+
+        # источник нефти
+        self.cmb_oil_source = QComboBox()
+        self.cmb_oil_source.addItems(OIL_FORECAST_TYPES)
+        controls.addWidget(QLabel("Источник прогноза нефти:"))
+        controls.addWidget(self.cmb_oil_source)
 
         # начало/конец
         self.txt_start = QLineEdit(); self.txt_start.setPlaceholderText("Начало")
@@ -101,21 +102,18 @@ class ForecastWindow(QMainWindow):
         spec = importlib.util.spec_from_file_location("mod", path)
         m = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(m)
-
+        df_events = self.create_df()
         try:
             if model_name == "Prophet":
                 events_dict = {}
                 for t,s,e in self.events: events_dict.setdefault(t, []).append((s,e))
-                train_df, test_df = m.forecast_prophet(events_dict)
+                train_df, test_df = m.forecast_prophet(df_events)
                 self._plot_prophet(train_df, test_df)
             elif model_name == "LightGBM":
-                events_dict = {}
-                for t,s,e in self.events: events_dict.setdefault(t, []).append((s,e))
-                y_train, y_test, y_pred = m.forecast_lgb(events_dict)
+                y_train, y_test, y_pred = m.forecast_lgb(df_events)
                 self._plot_lgb(y_train, y_test, y_pred)
             else:
-                for t,s,e in self.events: events_dict.setdefault(t, []).append((s,e))
-                pred_df,df = m.forecast_seq2seq(self.events)
+                pred_df,df = m.forecast_seq2seq(df_events)
                 self._plot_generic(pred_df,df)
         except Exception as ex:
             QMessageBox.critical(self, "Ошибка при выполнении модели", str(ex))
@@ -147,8 +145,41 @@ class ForecastWindow(QMainWindow):
         self.fig.tight_layout()
         self.canvas.draw()
 
+    def create_df(self):
+        oil_source = self.cmb_oil_source.currentText()  # Получаем выбранный источник прогноза нефти
+        if oil_source == 'walletinvestor':
+            oil = pd.read_csv("data/Updated_Oil_Price_Forecast.csv")
+        else:
+            oil = pd.read_csv('data/Updated_LiteFinance_Oil_Price_Forecast.csv')
+
+        # Создаем DataFrame с нужными датами и событиями
+        date_range = pd.date_range(start="2025-04-01", end="2030-05-01", freq="MS")
+        df_events = pd.DataFrame({
+            "Date": date_range,
+            "has_war": [0] * len(date_range),
+            "has_crisis": [0] * len(date_range)
+        })
+
+        # Заполняем DataFrame на основе событий
+        for t, start, end in self.events:
+            start_date = pd.to_datetime(start)
+            end_date = pd.to_datetime(end)
+            if t == "Кризис":
+                df_events.loc[(df_events['Date'] >= start_date) & (df_events['Date'] <= end_date), "has_crisis"] = 1
+            elif t == "Война":
+                df_events.loc[(df_events['Date'] >= start_date) & (df_events['Date'] <= end_date), "has_war"] = 1
+
+        # Объединяем с датасетом нефти
+        oil['Date'] = pd.to_datetime(oil['Date'])
+        df_combined = pd.merge(oil, df_events, on="Date", how="left")
+
+        df_combined = df_combined.fillna(0)
+        return df_combined
+
+
 if __name__ == '__main__':
     app = QtWidgets.QApplication(sys.argv)
     w = ForecastWindow()
     w.showMaximized()
     sys.exit(app.exec_())
+     

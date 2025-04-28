@@ -178,8 +178,6 @@ class FreightForecastApp:
                 self.fig.tight_layout()
                 self.canvas.draw()
 
-
-
             else:
                 x, y = model_module.run_forecast(self.events)
                 try:
