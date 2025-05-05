@@ -2,10 +2,11 @@ import sys
 import os
 import importlib.util
 from PyQt5 import QtWidgets
+from PyQt5.QtCore import QDate
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QComboBox, QLineEdit, QListWidget,
-    QMessageBox
+    QMessageBox, QDateEdit
 )
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 import matplotlib.pyplot as plt
@@ -48,8 +49,18 @@ class ForecastWindow(QMainWindow):
         controls.addWidget(QLabel("Источник прогноза нефти:"))
         controls.addWidget(self.cmb_oil_source)
 
-        self.txt_start = QLineEdit(); self.txt_start.setPlaceholderText("Начало")
-        self.txt_end = QLineEdit(); self.txt_end.setPlaceholderText("Конец")
+        self.txt_start = QDateEdit()
+        self.txt_start.setDisplayFormat("Начало (yyyy-MM)")
+        self.txt_start.setCalendarPopup(True)
+        self.txt_start.setMinimumDate(QDate(1900, 1, 1))
+        self.txt_start.setMaximumDate(QDate(2100, 12, 1))
+
+        self.txt_end = QDateEdit()
+        self.txt_end.setDisplayFormat("Конец (yyyy-MM)")
+        self.txt_end.setCalendarPopup(True)
+        self.txt_end.setMinimumDate(QDate(1900, 1, 1))
+        self.txt_end.setMaximumDate(QDate(2100, 12, 1))
+
         controls.addWidget(self.txt_start)
         controls.addWidget(self.txt_end)
 
