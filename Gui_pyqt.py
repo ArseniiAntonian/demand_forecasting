@@ -13,9 +13,9 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 MODELS = {
-    "Prophet" : "Ignat_prophet/Main.py",
-    "Seq2seq" : "belG/lgbt.py",
-    "LightGBM" : "arsen/gb_forecast.py"
+    "Prophet": "Ignat_prophet/1.py",
+    "Seq2seq": "belG/lgbt.py",
+    "LightGBM": "arsen/gb_forecast.py"
 }
 EVENT_TYPES = ["Кризис", "Война"]
 OIL_FORECAST_TYPES = ["walletinvestor", "EFA forecast"]
@@ -109,7 +109,9 @@ class ForecastWindow(QMainWindow):
 
         try:
             if model_name == "Prophet":
-                train_df, test_df = m.forecast_prophet(df_events)
+                events_dict = {}
+                for t,s,e in self.events: events_dict.setdefault(t, []).append((s,e))
+                train_df, test_df = m.forecast_prophet(events_dict,df_events)
                 self._plot_prophet(train_df, test_df)
 
             elif model_name == "LightGBM":
@@ -126,8 +128,8 @@ class ForecastWindow(QMainWindow):
     def _plot_prophet(self, train, test):
         self.ax.clear()
         self.ax.plot(train['Date'], train['Freight_Price'], label='Тренировочные', color='blue')
-        self.ax.plot(test['Date'], test['Freight_Price'], label='Тест', color='blue')
-        self.ax.plot(test['Date'], test['yhat_exp'], '--', label='Прогноз', color='red')
+        #self.ax.plot(test['ds'], test['Freight_Price'], label='Тест', color='blue')
+        self.ax.plot(test['ds'], test['yhat_exp'], '--', label='Прогноз', color='red')
         self._finalize()
 
     def _plot_lgb(self, y, y_forecast):
