@@ -1,0 +1,10 @@
+{
+  "enc_units": 128,
+  "enc_layers": 1,
+  "dec_units": 256,
+  "dec_layers": 2,
+  "learning_rate": 0.003,
+  "k_attention": 2,
+  "batch_size": 32,
+  "epochs": 20
+}
