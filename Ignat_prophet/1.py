@@ -79,6 +79,8 @@ def forecast_prophet(events, data):
         'lower_window': 0,
         'upper_window': 180
     })
+    print("crisis_events", crisis_events)
+    print("events", events)
 
     # === Обучение модели ===
     model = Prophet(
@@ -103,7 +105,6 @@ def forecast_prophet(events, data):
         left_on='Date', right_on='ds', how='left'
     )
     test['yhat_exp'] = np.expm1(test['yhat'])
-    print(test.head(20))
     print(forecast['yhat_exp'])
     return train, forecast
 

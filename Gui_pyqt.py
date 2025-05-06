@@ -113,7 +113,6 @@ class ForecastWindow(QMainWindow):
                 for t,s,e in self.events: events_dict.setdefault(t, []).append((s,e))
                 train_df, test_df = m.forecast_prophet(events_dict,df_events)
                 self._plot_prophet(train_df, test_df)
-
             elif model_name == "LightGBM":
                 y, y_forecast = m.forecast_lgb(df_events)
                 self._plot_lgb(y, y_forecast)
