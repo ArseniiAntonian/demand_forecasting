@@ -45,7 +45,7 @@ def forecast_lgb(df_pred: pd.DataFrame):
     df_pred['Date'] = pd.to_datetime(df_pred['Date'], format="%Y-%m-%d")
     df_pred.set_index('Date', inplace=True)
     df_pred.index.freq = 'MS'
-    df_pred = df_pred.loc[:'2028-01-01']
+    df_pred = df_pred.loc[:'2027-03-01']
     forecast_dates = df_pred.index
 
     # df_pred.drop(columns='Unnamed: 0', axis=1, inplace=True)

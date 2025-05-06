@@ -5,10 +5,10 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error
 import matplotlib.pyplot as plt
 
 
-def forecast_prophet(events, data):
+def forecast_prophet(data):
     # === Загрузка и базовая подготовка ===
     df = pd.read_csv(
-        '/Users/ignat/Desktop/Demand/demand_forecasting/data/ML.csv',
+        'data/ML.csv',
         parse_dates=['Date']
     )
     df['Date'] = pd.to_datetime(df['Date'])
@@ -103,8 +103,6 @@ def forecast_prophet(events, data):
         left_on='Date', right_on='ds', how='left'
     )
     test['yhat_exp'] = np.expm1(test['yhat'])
-    print(test.head(20))
-    print(forecast['yhat_exp'])
     return train, forecast
 
 
