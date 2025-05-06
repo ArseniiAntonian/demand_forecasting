@@ -15,7 +15,7 @@ import pandas as pd
 
 MODELS = {
     "Prophet":   "Ignat_prophet/1.py",
-    "Seq2seq":   "belG/lgbt.py",
+    "Seq2seq":   "belG/tcn_forecast.py",
     "LightGBM":  "arsen/gb_forecast.py"
 }
 EVENT_TYPES = ["Кризис", "Война"]
@@ -140,7 +140,7 @@ class ForecastWindow(QMainWindow):
                 y, y_pred = m.forecast_lgb(df_events)
                 self._plot_lgb(y, y_pred)
             else:
-                pred, df = m.forecast_seq2seq(df_events)
+                pred, df = m.forecast_last_data()
                 self._plot_generic(pred, df)
         except Exception as ex:
             QMessageBox.critical(self, "Ошибка при выполнении модели", str(ex))
