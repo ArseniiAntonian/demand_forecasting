@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 from sklearn.metrics import mean_absolute_error, root_mean_squared_error
-def forecast_prophet(data):
+def forecast_prophet(evenst,data):
     import pandas as pd
     import numpy as np
     from prophet import Prophet
@@ -34,7 +34,6 @@ def forecast_prophet(data):
         'Oil_Lag12',
         'Freight_Lag24'
     ]
-
 
     # === Подготовка датафрейма для Prophet ===
     def prepare_df(df_part):
