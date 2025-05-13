@@ -25,7 +25,7 @@ def check_device():
     print("Using GPU" if devices else "Using CPU")
 
 
-def load_data(path: str, oil_path) -> pd.DataFrame:
+def load_data(path: str) -> pd.DataFrame:
     # df_oil = pd.read_csv(oil_path, parse_dates=["Date"])
     # df_oil.drop(columns=["Open","High","Low","Vol.","Change %"], inplace=True)
     # df_oil.sort_values('Date', inplace=True)
@@ -208,7 +208,7 @@ def build_model(
         tf.keras.metrics.MeanAbsoluteError(name='mae'),
         tf.keras.metrics.RootMeanSquaredError(name='rmse')
     ]
-    model.compile(optimizer=optimizer, loss=VarianceRegularizerLoss(beta=1), metrics=metrics)
+    model.compile(optimizer=optimizer, loss=VarianceRegularizerLoss(beta=0.0), metrics=metrics)
     return model
 
 
@@ -361,7 +361,7 @@ def evaluate_and_plot(
 
 def main(train: bool = True, tune: bool = False):
     check_device()
-    df = load_data('data/ML.csv', 'data\monthly_oil_cost_1988-2025.csv')
+    df = load_data('data/ML.csv')
     time_cols = [
         'Freight_Price', 'Oil_Price',
         'Freight_Lag1','Freight_Lag2',

@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from tensorflow.keras.models import load_model
 import joblib
 
-from tcn_model import build_model
+from belG.tcn_model import build_model
 
 MODEL_PATH= 'belG/tcn_weights.h5'
 SCALER_X_PATH= 'belG/scaler_X.pkl'
@@ -89,15 +89,4 @@ def forecast_last_data() -> pd.DataFrame:
         'Forecast': pred.flatten()
     }, index=forecast_dates)
 
-    return df_forecast
-
-df_pred = forecast_last_data()
-
-# Визуализируем
-plt.figure()
-plt.plot(df_pred.index, df_pred['Forecast'], marker='o', label='Forecast')
-plt.title('Freight Price Forecast from Last Available Data')
-plt.xlabel('Date')
-plt.ylabel('Freight Price')
-plt.legend()
-plt.show()
+    return df_forecast, df
