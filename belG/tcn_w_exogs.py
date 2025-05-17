@@ -14,9 +14,9 @@ from keras.losses import MeanAbsoluteError, Loss, MeanSquaredError
 # Параметры модели и путям к файлам
 N_INPUT = 24
 N_OUTPUT = 24
-MODEL_PATH = 'belG/tcn_weights.h5'
-SCALER_X_PATH = 'belG/scaler_X.pkl'
-SCALER_Y_PATH = 'belG/scaler_y.pkl'
+MODEL_PATH = 'belG/weights_w_exogs/tcn_weights.h5'
+SCALER_X_PATH = 'belG/weights_w_exogs/scaler_X.pkl'
+SCALER_Y_PATH = 'belG/weights_w_exogs/scaler_y.pkl'
 
 
 def check_device():
@@ -48,20 +48,12 @@ def preprocess(
     test_size: int,
     n_input: int
 ) -> tuple:
-    """
-    Делит DF на train/val/test с дополнительными n_input строками
-    в начале каждого из val/test, чтобы create_sequences вернул хотя бы
-    по одному окну. Фитит скейлеры только на train.
-    """
-
-    # 1) Назначаем список признаков и таргета
     target_col = 'Freight_Price'
-    feat_cols  = [c for c in time_cols + cat_cols if c != target_col]
+    # только временные признаки идут в энкодер
+    feat_cols = [c for c in time_cols if c != target_col]
+    df = df[feat_cols + cat_cols + [target_col]].dropna().sort_index()
 
-    df = df[feat_cols + [target_col]].dropna().sort_index()
     total = len(df)
-
-    # 2) Индексы разбиения
     train_end  = total - val_size - test_size
     val_start  = train_end - n_input
     val_end    = total - test_size
@@ -71,11 +63,10 @@ def preprocess(
     df_val   = df.iloc[val_start:val_end]
     df_test  = df.iloc[test_start:]
 
-    # 3) Фитим скейлеры только на train
+    # скейлеры по только временным фичам и таргету
     scaler_X = StandardScaler().fit(df_train[feat_cols])
     scaler_y = StandardScaler().fit(df_train[[target_col]])
 
-    # 4) Трансформируем каждый датасет
     def _transform(subdf):
         X = scaler_X.transform(subdf[feat_cols])
         y = scaler_y.transform(subdf[[target_col]])
@@ -85,21 +76,31 @@ def preprocess(
     X_val,   y_val   = _transform(df_val)
     X_test,  y_test  = _transform(df_test)
 
-    return (X_train, X_val, X_test), (y_train, y_val, y_test), scaler_X, scaler_y
+    # и отдельно не­скейленные экзогены
+    exog_train = df_train[cat_cols].values.astype(np.float32)
+    exog_val   = df_val[cat_cols].values.astype(np.float32)
+    exog_test  = df_test[cat_cols].values.astype(np.float32)
+
+    return (X_train, X_val, X_test), \
+           (y_train, y_val, y_test), \
+           (exog_train, exog_val, exog_test), \
+           scaler_X, scaler_y
 
 
 def create_sequences(
     X: np.ndarray,
     y: np.ndarray,
+    exog: np.ndarray,
     n_input: int,
     n_output: int
 ) -> tuple:
-    enc, dec = [], []
+    enc, dec, ex = [], [], []
     total = len(X) - n_input - n_output + 1
     for i in range(total):
-        enc.append(X[i : i + n_input])
-        dec.append(y[i + n_input : i + n_input + n_output])
-    return np.array(enc), np.array(dec)
+        enc.append( X[i : i + n_input] )
+        dec.append( y[i + n_input : i + n_input + n_output] )
+        ex.append( exog[i + n_input : i + n_input + n_output] )
+    return np.array(enc), np.array(dec), np.array(ex)
 
 class DerivativeMatchingLoss(Loss):
     def __init__(self, alpha=1.0, name='derivative_matching_loss'):
@@ -147,6 +148,7 @@ def build_model(
     n_input: int,
     n_features: int,
     n_output: int,
+    n_exog: int,
     enc_filters: int = 512,
     enc_kernel_size: int = 2,
     enc_dilations_groups: list = [[1,2], [1,2,4]],
@@ -158,57 +160,48 @@ def build_model(
     learning_rate: float = 1e-3,
     k_attention: int = 4
 ) -> tf.keras.Model:
-    """
-    Строит Seq2Seq-модель на основе TCN с несколькими блоками дилатаций и attention.
-    """
-    # Вход энкодера
+    # 3.1 Энкодер
     enc_inputs = tf.keras.layers.Input((n_input, n_features), name='encoder_inputs')
     x = enc_inputs
-    # Последовательность TCN-блоков энкодера
-    for idx, dilations in enumerate(enc_dilations_groups):
-        x = TCN(
-            nb_filters=enc_filters,
-            kernel_size=enc_kernel_size,
-            dilations=dilations,
-            dropout_rate=enc_dropout,
-            return_sequences=True,
-            name=f'encoder_tcn_{idx}'
-        )(x)
-    enc_seq = x  # форма (batch, n_input, enc_filters)
-
-    # Last encoder output for initialization
+    for idx, dil in enumerate(enc_dilations_groups):
+        x = TCN(nb_filters=enc_filters, kernel_size=enc_kernel_size,
+                dilations=dil, dropout_rate=enc_dropout,
+                return_sequences=True, name=f'enc_tcn_{idx}')(x)
+    enc_seq  = x
     enc_last = tf.keras.layers.Lambda(lambda z: z[:, -1, :], name='last_encoding')(enc_seq)
     dec_init = tf.keras.layers.RepeatVector(n_output, name='repeat_vector')(enc_last)
 
-    # Attention: между всеми шагами декодера и энкодера
+    # 3.2 Механизм внимания на последние k_attention шагов
     recent_enc = enc_seq[:, -k_attention:, :]
-    context = tf.keras.layers.Attention(name='attention')([dec_init, recent_enc])
-    dec_input = tf.keras.layers.Concatenate(name='concat_attention')([dec_init, context])
+    context    = tf.keras.layers.Attention(name='attention')([dec_init, recent_enc])
 
-    # Последовательность TCN-блоков декодера
+    # 3.3 Input для будущих экзогенов
+    exog_inputs = tf.keras.layers.Input((n_output, n_exog), name='exog_inputs')
+
+    # 3.4 Конкатенация декодерной инициализации, внимания и экзогенов
+    dec_input = tf.keras.layers.Concatenate(name='concat_all')(
+        [dec_init, context, exog_inputs]
+    )
+
+    # 3.5 Декодер (TCN-блоки)
     y = dec_input
-    for idx, dilations in enumerate(dec_dilations_groups):
-        y = TCN(
-            nb_filters=dec_filters,
-            kernel_size=dec_kernel_size,
-            dilations=dilations,
-            dropout_rate=dec_dropout,
-            return_sequences=True,
-            name=f'decoder_tcn_{idx}'
-        )(y)
+    for idx, dil in enumerate(dec_dilations_groups):
+        y = TCN(nb_filters=dec_filters, kernel_size=dec_kernel_size,
+                dilations=dil, dropout_rate=dec_dropout,
+                return_sequences=True, name=f'dec_tcn_{idx}')(y)
 
     outputs = tf.keras.layers.TimeDistributed(
         tf.keras.layers.Dense(1, activation='linear'),
         name='time_dist_dense'
     )(y)
 
-    model = tf.keras.Model(enc_inputs, outputs)
-    optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-    metrics=[
-        tf.keras.metrics.MeanAbsoluteError(name='mae'),
-        tf.keras.metrics.RootMeanSquaredError(name='rmse')
-    ]
-    model.compile(optimizer=optimizer, loss=DerivativeMatchingLoss(alpha=0.5), metrics=metrics)
+    model = tf.keras.Model([enc_inputs, exog_inputs], outputs)
+    model.compile(
+        optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
+        loss=DerivativeMatchingLoss(alpha=0.5),
+        metrics=[tf.keras.metrics.MeanAbsoluteError(name='mae'),
+                 tf.keras.metrics.RootMeanSquaredError(name='rmse')]
+    )
     return model
 
 
@@ -275,7 +268,8 @@ def predict_sequence(
 
 
 def tune_hyperparameters(
-    X_train: np.ndarray,
+    enc_X_train: np.ndarray,
+    dec_exog_train: np.ndarray,
     y_train: np.ndarray,
     n_input: int,
     n_features: int,
@@ -304,7 +298,7 @@ def tune_hyperparameters(
             k_attention=params.get('k_attention', 2)
         )
         history = model.fit(
-            X_train, y_train,
+            [enc_X_train, dec_exog_train], y_train,
             epochs=params['epochs'],
             batch_size=params['batch_size'],
             validation_split=validation_split,
@@ -368,57 +362,59 @@ def main(train: bool = True, tune: bool = False):
         'Oil_Lag1','Oil_Lag2',
         'Oil_Lag6','Freight_Lag6'
     ]
-    cat_cols = [
-        'has_crisis','has_war'
-    ]
+    cat_cols = ['has_crisis','has_war']
 
-    # 1) Preprocess + split + scale
-    (X_train, X_val, X_test), (y_train, y_val, y_test), scaler_X, scaler_y = \
-        preprocess(df, time_cols, cat_cols,
-                val_size=N_OUTPUT,
-                test_size=N_OUTPUT,
-                n_input=N_INPUT)
+    # 1) Preprocess + split + scale + exog
+    (X_train, X_val, X_test), (y_train, y_val, y_test), \
+        (exog_train, exog_val, exog_test), scaler_X, scaler_y = preprocess(
+            df, time_cols, cat_cols,
+            val_size=N_OUTPUT, test_size=N_OUTPUT, n_input=N_INPUT
+        )
 
-    enc_X_train, dec_y_train = create_sequences(X_train, y_train, N_INPUT, N_OUTPUT)
-    enc_X_val,   dec_y_val   = create_sequences(X_val,   y_val,   N_INPUT, N_OUTPUT)
-    enc_X_test,  dec_y_test  = create_sequences(X_test,  y_test,  N_INPUT, N_OUTPUT)
+    # 2) Создание Seq2Seq-последовательностей
+    enc_X_train, dec_y_train, dec_exog_train = create_sequences(
+        X_train, y_train, exog_train, N_INPUT, N_OUTPUT
+    )
+    enc_X_val,   dec_y_val,   dec_exog_val   = create_sequences(
+        X_val,   y_val,   exog_val,   N_INPUT, N_OUTPUT
+    )
+    enc_X_test,  dec_y_test,  dec_exog_test  = create_sequences(
+        X_test,  y_test,  exog_test,  N_INPUT, N_OUTPUT
+    )
 
     import time
     start = time.time()
+
     if tune:
+        # --- Hyperparameter tuning ---
         param_grid = {
             'enc_filters':     [128],
             'enc_kernel_size': [4],
             'enc_dilations': [
-                # две TCN-группы
-                [[1, 2],       [1, 2, 4]],
-                [[1, 2, 4],    [1, 2, 4, 8]],
-                [[1, 2, 4, 8], [1, 2, 4, 8, 16]],
-
-                # три TCN-группы
-                [[1, 2],       [1, 2, 4],    [1, 2, 4, 8]],
-                [[1, 2, 4],    [1, 2, 4, 8], [1, 2, 4, 8, 16]],
+                [[1,2], [1,2,4]],
+                [[1,2,4], [1,2,4,8]],
+                [[1,2,4,8], [1,2,4,8,16]],
+                [[1,2], [1,2,4], [1,2,4,8]],
+                [[1,2,4], [1,2,4,8], [1,2,4,8,16]],
             ],
             'enc_dropout':     [0.0],
-
             'dec_filters':     [128],
             'dec_kernel_size': [4],
             'dec_dilations': [
-                [[1, 2],       [1, 2, 4]],
-                [[1, 2, 4],    [1, 2, 4, 8]],
-                [[1, 2, 4, 8], [1, 2, 4, 8, 16]],
-                [[1, 2],       [1, 2, 4],    [1, 2, 4, 8]],
-                [[1, 2, 4],    [1, 2, 4, 8], [1, 2, 4, 8, 16]],
+                [[1,2], [1,2,4]],
+                [[1,2,4], [1,2,4,8]],
+                [[1,2,4,8], [1,2,4,8,16]],
+                [[1,2], [1,2,4], [1,2,4,8]],
+                [[1,2,4], [1,2,4,8], [1,2,4,8,16]],
             ],
             'dec_dropout':     [0.0],
-
             'learning_rate':   [1e-3],
             'batch_size':      [32],
             'epochs':          [50],
-            'k_attention':     [2, 4, 6],
+            'k_attention':     [2,4,6],
         }
         best_params = tune_hyperparameters(
-            enc_X_train, dec_y_train,
+            enc_X_train, dec_exog_train, dec_y_train,
             N_INPUT, X_train.shape[1], N_OUTPUT,
             param_grid,
             validation_split=0.1,
@@ -428,11 +424,12 @@ def main(train: bool = True, tune: bool = False):
         print(f"Hyperparameter tuning took {end - start:.2f} seconds")
 
         # 3b) Train final model on train+val
-        X_comb = np.concatenate([enc_X_train, enc_X_val], axis=0)
-        y_comb = np.concatenate([dec_y_train, dec_y_val], axis=0)
+        X_comb   = np.concatenate([enc_X_train, enc_X_val], axis=0)
+        y_comb   = np.concatenate([dec_y_train,  dec_y_val], axis=0)
+        exog_comb = np.concatenate([dec_exog_train, dec_exog_val], axis=0)
 
         final_model = build_model(
-            N_INPUT, X_train.shape[1], N_OUTPUT,
+            N_INPUT, X_train.shape[1], N_OUTPUT, exog_train.shape[1],
             best_params['enc_filters'],
             best_params['enc_kernel_size'],
             best_params['enc_dilations'],
@@ -446,26 +443,25 @@ def main(train: bool = True, tune: bool = False):
         )
 
         print(final_model.summary())
-
         final_model.fit(
-            X_comb, y_comb,
+            [X_comb, exog_comb], y_comb,
             epochs=best_params['epochs'],
             batch_size=best_params['batch_size'],
             verbose=1
         )
-        # save after training
         save_artifacts(final_model, scaler_X, scaler_y)
 
     elif train:
-        # 4) Train-only branch: load best_params.json, train on train+val, save
-        with open('belG/best_params.json', 'r') as f:
+        # --- Train-only branch: load best_params.json, train on train+val, save
+        with open('belG/best_params_exogs.json', 'r') as f:
             best_params = json.load(f)
 
-        X_comb = np.concatenate([enc_X_train, enc_X_val], axis=0)
-        y_comb = np.concatenate([dec_y_train, dec_y_val], axis=0)
+        X_comb   = np.concatenate([enc_X_train, enc_X_val], axis=0)
+        y_comb   = np.concatenate([dec_y_train,  dec_y_val], axis=0)
+        exog_comb = np.concatenate([dec_exog_train, dec_exog_val], axis=0)
 
         final_model = build_model(
-            N_INPUT, X_train.shape[1], N_OUTPUT,
+            N_INPUT, X_train.shape[1], N_OUTPUT, exog_train.shape[1],
             best_params['enc_filters'],
             best_params['enc_kernel_size'],
             best_params['enc_dilations'],
@@ -478,7 +474,7 @@ def main(train: bool = True, tune: bool = False):
             k_attention=best_params['k_attention']
         )
         final_model.fit(
-            X_comb, y_comb,
+            [X_comb, exog_comb], y_comb,
             epochs=best_params['epochs'],
             batch_size=best_params['batch_size'],
             verbose=1
@@ -486,11 +482,11 @@ def main(train: bool = True, tune: bool = False):
         save_artifacts(final_model, scaler_X, scaler_y)
 
     else:
-        # 5) Inference-only: load model weights
-        with open('belG/best_params.json', 'r') as f:
+        # --- Inference-only: load model weights
+        with open('belG/best_params_exogs.json', 'r') as f:
             best_params = json.load(f)
         final_model = build_model(
-            N_INPUT, X_train.shape[1], N_OUTPUT,
+            N_INPUT, X_train.shape[1], N_OUTPUT, exog_train.shape[1],
             best_params['enc_filters'],
             best_params['enc_kernel_size'],
             best_params['enc_dilations'],
@@ -506,13 +502,38 @@ def main(train: bool = True, tune: bool = False):
 
     # 6) Final evaluation on test set
     print("Test evaluation:")
-    results = final_model.evaluate(enc_X_test, dec_y_test, verbose=0)
-    evaluate_and_plot(
-        final_model, enc_X_test, dec_y_test,
-        scaler_y, df.index[-N_OUTPUT]
+    results = final_model.evaluate(
+        [enc_X_test, dec_exog_test],
+        dec_y_test,
+        verbose=0
     )
+
+    # Встроенный plotting (как раньше в evaluate_and_plot)
+    pred_scaled = final_model.predict([enc_X_test[:1], dec_exog_test[:1]])[0]
+    pred_inv    = scaler_y.inverse_transform(pred_scaled)
+    true_inv    = scaler_y.inverse_transform(dec_y_test[0])
+
+    mae_val  = mean_absolute_error(true_inv.flatten(), pred_inv.flatten())
+    rmse_val = math.sqrt(mean_squared_error(true_inv.flatten(), pred_inv.flatten()))
+    print(f"MAE: {mae_val:.4f}, RMSE: {rmse_val:.4f}")
+
+    dates = pd.date_range(start=df.index[-N_OUTPUT], periods=N_OUTPUT, freq='M')
+    df_plot = pd.DataFrame({
+        'True':      true_inv.flatten(),
+        'Predicted': pred_inv.flatten()
+    }, index=dates)
+
+    plt.figure()
+    plt.plot(df_plot.index, df_plot['True'], label='True')
+    plt.plot(df_plot.index, df_plot['Predicted'], label='Predicted')
+    plt.title('Freight Price: True vs Predicted')
+    plt.xlabel('Date')
+    plt.ylabel('Price')
+    plt.legend()
+    plt.show()
+
     print(dict(zip(final_model.metrics_names, results)))
 
 
 if __name__ == '__main__':
-    main(train=False, tune=False)
+    main(train=True, tune=False)
