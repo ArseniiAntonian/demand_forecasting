@@ -149,6 +149,43 @@ class ForecastWindow(QMainWindow):
         except Exception as ex:
             QMessageBox.critical(self, "Ошибка при выполнении модели", str(ex))
 
+
+    def run_model(self):
+        # model_name = self.cmb_model.currentText()
+        # path = MODELS[model_name]
+        # if not os.path.exists(path):
+        #     QMessageBox.critical(self, "Ошибка", f"Модель {path} не найдена")
+        #     return
+
+        spec1 = importlib.util.spec_from_file_location("mod", MODELS['Prophet'])
+        spec2 = importlib.util.spec_from_file_location("mod", MODELS['LightGBM'])
+        spec3 = importlib.util.spec_from_file_location("mod", MODELS['Seq2seq'])
+        spec4 = importlib.util.spec_from_file_location("mod", MODELS['Seq2seq w exogs'])
+        m = importlib.util.module_from_spec(spec1)
+        m2 = importlib.util.module_from_spec(spec2)
+        m3 = importlib.util.module_from_spec(spec3)
+        m4 = importlib.util.module_from_spec(spec4)
+        spec1.loader.exec_module(m)
+        spec2.loader.exec_module(m2)
+        spec3.loader.exec_module(m3)
+        spec4.loader.exec_module(m4)
+
+        df_events = self.create_df()
+        try:
+            # if model_name == "Prophet":
+                train, test = m.forecast_prophet(df_events)
+                # self._plot_prophet(train, test)
+            # elif model_name == "LightGBM":
+                y, y_pred = m2.forecast_lgb(df_events)
+                # self._plot_lgb(y, y_pred)
+            # else:
+                pred, df = m3.forecast_last_data()
+                pred_ss, df = m4.forecast_last_data_w_exogs(df_events)
+                # self._plot_generic(pred, df)
+                self.plot_huy(train, test, y_pred, pred, pred_ss)
+        except Exception as ex:
+            QMessageBox.critical(self, "Ошибка при выполнении модели", str(ex))
+
     def _plot_prophet(self, train, test):
         self.ax.clear()
         self.ax.plot(train['Date'], train['Freight_Price'], label='BDTI', color='blue')
@@ -167,6 +204,15 @@ class ForecastWindow(QMainWindow):
         self.ax.clear()
         self.ax.plot(pred, '--', label='Прогноз BDTI', color='red')
         self.ax.plot(df['Freight_Price'], label='BDTI', color='blue')
+        self._finalize()
+
+    def plot_huy(self, train, pred_p, pred_l, pred_s, pred_ss):
+        self.ax.clear()
+        self.ax.plot(train['Date'], train['Freight_Price'], label='BDTI', color='blue')
+        self.ax.plot(pred_p['ds'], pred_p['yhat_exp'], '--', label='Прогноз Prophet', color='orange')
+        self.ax.plot(pred_l.index, pred_l.values, '--', label='Прогноз LightGBM', color='red')
+        self.ax.plot(pred_s, '--', label='Прогноз Seq2Seq', color='green')
+        self.ax.plot(pred_ss, '--', label='Прогноз Seq2Seq с учетом кризисов', color='purple')
         self._finalize()
 
     def _finalize(self):
