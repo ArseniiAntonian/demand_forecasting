@@ -16,6 +16,7 @@ import pandas as pd
 MODELS = {
     "Prophet":   "Ignat_prophet/1.py",
     "Seq2seq":   "belG/tcn_forecast.py",
+    "Seq2seq w exogs": "belG/tcn_forecast.py",
     "LightGBM":  "arsen/gb_forecast.py"
 }
 EVENT_TYPES = ["Кризис", "Война"]
@@ -139,6 +140,9 @@ class ForecastWindow(QMainWindow):
             elif model_name == "LightGBM":
                 y, y_pred = m.forecast_lgb(df_events)
                 self._plot_lgb(y, y_pred)
+            elif model_name == "Seq2seq w exogs":
+                pred, df = m.forecast_last_data_w_exogs(df_events)
+                self._plot_generic(pred, df)
             else:
                 pred, df = m.forecast_last_data()
                 self._plot_generic(pred, df)
