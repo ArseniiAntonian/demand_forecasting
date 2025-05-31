@@ -23,8 +23,8 @@ df['Log_Freight'] = np.log1p(df['Freight_Price'])
 df = df.dropna().reset_index(drop=True)
 
 # === Разделение на train/test ===
-train = df[df['Date'] < '2020-01-03'].copy()
-test = df[(df['Date'] >= '2020-01-03') & (df['Date'] <= '2025-01-03')].copy()
+train = df[df['Date'] < '2015-01-03'].copy()
+test = df[(df['Date'] >= '2015-01-03') & (df['Date'] <= '2017-01-03')].copy()
 used_features = [
     # макро- и внешние признаки
     #'Oil_Price',
@@ -86,10 +86,9 @@ test['yhat_exp'] = np.expm1(test['yhat'])
 
 plt.figure(figsize=(14, 6))
 plt.plot(train['Date'], train['Freight_Price'], label='Тренировочные данные', color='blue')
-plt.plot(test['Date'], test['Freight_Price'], label='Тест (2023–2025)', color='blue')
+plt.plot(test['Date'], test['Freight_Price'], label='Тест (2015-2017)', color='blue')
 plt.plot(test['Date'], test['yhat_exp'], '--', label='Прогноз', color='red')
 
-plt.title("Прогноз фрахта: Prophet + внешние признаки (2023–2025)")
 plt.xlabel("Дата")
 plt.ylabel("Фрахтовая ставка")
 plt.legend()
@@ -101,6 +100,6 @@ plt.show()
 mae = mean_absolute_error(test['Freight_Price'], test['yhat_exp'])
 rmse = root_mean_squared_error(test['Freight_Price'], test['yhat_exp'])
 
-print("----- Test (2023-2025) -----")
+print("----- Test (2004-2012) -----")
 print(f"MAE : {mae:.2f}")
 print(f"RMSE : {rmse:.2f}")
