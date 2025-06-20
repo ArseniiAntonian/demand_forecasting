@@ -1,13 +1,13 @@
 {
   "enc_filters": 64,
-  "enc_kernel_size": 2,
+  "enc_kernel_size": 4,
   "enc_dilations": [
     [1,2],
     [1, 2, 4, 8]
   ],
   "enc_dropout": 0.0,
   "dec_filters": 64,
-  "dec_kernel_size": 2,
+  "dec_kernel_size": 4,
   "dec_dilations": [
     [1,2],
     [1, 2, 4, 8]
@@ -15,6 +15,6 @@
   "dec_dropout": 0.0,
   "learning_rate": 0.0001,
   "batch_size": 32,
-  "epochs": 100,
-  "k_attention": 23
+  "epochs": 150,
+  "k_attention": 6
 }
