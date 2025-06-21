@@ -31,12 +31,18 @@ def load_data(path: str) -> pd.DataFrame:
     # df_oil.sort_values('Date', inplace=True)
     df = pd.read_csv(path, parse_dates=["Date"])
     # df = df.merge(df_oil, on='Date', how='left')
-    df['Oil_Lag6']     = df['Oil_Lag2'].shift(4)
-    df['Freight_Lag6'] = df['Freight_Lag2'].shift(4)
+    # df['Oil_Lag6']     = df['Oil_Lag2'].shift(4)
+    # df['Freight_Lag6'] = df['Freight_Lag2'].shift(4)
     df.dropna(inplace=True)
     # df = pd.get_dummies(df, columns=['has_crisis', 'has_war', 'has_sanctions', 'has_pandemic'], drop_first=False)
     df.sort_values('Date', inplace=True)
     df.set_index('Date', inplace=True)
+    df['freight_ma6'] = df['Freight_Price'].rolling(3).mean()
+    df['oil_ema6']    = df['Oil_Price'].ewm(span=6).mean()
+    df['freight_dev'] = df['Freight_Price'] - df['freight_ma6']
+    df['month_sin']   = np.sin(2*np.pi * df.index.month/12)
+    df['month_cos']   = np.cos(2*np.pi * df.index.month/12)
+    df = df.loc['2004-01-01': '2017-01-01']
     return df
 
 
@@ -338,7 +344,8 @@ def evaluate_and_plot(
     X_test: np.ndarray,
     y_test: np.ndarray,
     scaler_y: StandardScaler,
-    start_date: pd.Timestamp
+    start_date: pd.Timestamp,
+    df: pd.DataFrame
 ) -> None:
     pred = model.predict(X_test[:1])
     pred_inv = scaler_y.inverse_transform(pred[0])
@@ -354,8 +361,9 @@ def evaluate_and_plot(
         'Predicted': pred_inv.flatten()
     }, index=dates)
     # df_plot.plot(title='Freight Price: True vs Predicted')
-    plt.plot(df_plot.index, df_plot['True'], label='True', color='blue')
-    plt.plot(df_plot.index, df_plot['Predicted'], label='Predicted', color='orange')
+    # plt.plot(df_plot.index, df_plot['True'], label='True', color='blue')
+    plt.plot(df_plot.index, df_plot['Predicted'], label='Predicted', color='red')
+    plt.plot(df.index, df['Freight_Price'], label='Original', color='blue')
     plt.show()
 
 
@@ -364,9 +372,12 @@ def main(train: bool = True, tune: bool = False):
     df = load_data('data/ML.csv')
     time_cols = [
         'Freight_Price', 'Oil_Price',
+        # 'freight_ma6', 'freight_dev',
+        # # 'month_sin', 'month_cos',
+        # 'oil_ema6',
         'Freight_Lag1','Freight_Lag2',
         'Oil_Lag1','Oil_Lag2',
-        'Oil_Lag6','Freight_Lag6'
+        # 'Oil_Lag6','Freight_Lag6'
     ]
     cat_cols = [
         'has_crisis','has_war'
@@ -509,10 +520,10 @@ def main(train: bool = True, tune: bool = False):
     results = final_model.evaluate(enc_X_test, dec_y_test, verbose=0)
     evaluate_and_plot(
         final_model, enc_X_test, dec_y_test,
-        scaler_y, df.index[-N_OUTPUT]
+        scaler_y, df.index[-N_OUTPUT], df
     )
     print(dict(zip(final_model.metrics_names, results)))
 
 
 if __name__ == '__main__':
-    main(train=False, tune=False)
+    main(train=True, tune=False)
