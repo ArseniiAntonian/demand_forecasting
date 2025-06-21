@@ -13,6 +13,7 @@ from keras.losses import MeanAbsoluteError, Loss, MeanSquaredError
 import optuna
 from keras.optimizers import Adam
 import time
+from metrics import TrendMetrics
 
 # Параметры модели и путям к файлам
 N_INPUT = 12
@@ -573,8 +574,12 @@ def main(train: bool = True, tune: bool = False):
     plt.legend()
     plt.show()
 
+    df_plot.rename(columns={'True': 'Freight_Price', 'Predicted': 'yhat_exp'}, inplace=True)
+
     mae_val  = mean_absolute_error(true_inv.flatten(), pred_inv.flatten())
     rmse_val = math.sqrt(mean_squared_error(true_inv.flatten(), pred_inv.flatten()))
+    metrics = TrendMetrics(df_plot)
+    print(metrics.summary())
     print(f"MAE: {mae_val:.4f}, RMSE: {rmse_val:.4f}")
 
 
