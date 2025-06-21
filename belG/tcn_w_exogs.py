@@ -40,7 +40,7 @@ def load_data(path: str) -> pd.DataFrame:
     # df = pd.get_dummies(df, columns=['has_crisis', 'has_war', 'has_sanctions', 'has_pandemic'], drop_first=False)
     df.sort_values('Date', inplace=True)
     df.set_index('Date', inplace=True)
-    df = df.loc['2004-01-01': '2020-01-01']
+    # df = df.loc['2004-01-01': '2020-01-01']
     return df
 
 
@@ -391,7 +391,7 @@ def make_y_with_masks(y_vals, exog):
 
 def main(train: bool = True, tune: bool = False):
     check_device()
-    df = load_data('data/ML.csv')
+    df = load_data('data/ML_with_crisis.csv')
 
     time_cols = [
         'Freight_Price', 'Oil_Price',
@@ -399,7 +399,7 @@ def main(train: bool = True, tune: bool = False):
         'Oil_Lag1','Oil_Lag2',
         'Oil_Lag6','Freight_Lag6',
     ]
-    cat_cols = ['has_crisis','has_war']
+    cat_cols = ['has_crisis_y','crisis_intensity','crisis_shock','crisis_type_Financial','crisis_type_Pandemic','crisis_type_Geopolitical','crisis_type_Natural','crisis_type_Logistical']
 
     # 1) Preprocess + split + scale + exog
     (X_train, X_val, X_test), (y_train, y_val, y_test), \
@@ -579,4 +579,4 @@ def main(train: bool = True, tune: bool = False):
 
 
 if __name__ == '__main__':
-    main(train=True, tune=True)
+    main(train=False, tune=False)
