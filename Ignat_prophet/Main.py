@@ -46,29 +46,54 @@ def prepare_df(df_part):
 freight_train = prepare_df(train)
 future = prepare_df(test)
 
-# === Добавим пользовательские события (holidays/критические события) ===
+
 crisis_events = pd.DataFrame({
     'holiday': [
-        'covid_lockdown', 
-        'suez_blockage', 
-        'ukraine_conflict', 
+        # из вашего исходного списка
+        'covid_lockdown',
+        'suez_blockage',
+        'ukraine_conflict',
         'china_port_closure',
-        'inflation_peak'
+        'inflation_peak',
+        # дополнительные кризисы из датасета
+        'covid_19_oil_crash',
+        'dot_com_crash',
+        'global_financial_crisis',
+        'oil_price_collapse',
+        'arab_spring',
+        'crimea_crisis',
+        'iraq_war',
+        'iran_sanctions',
+        'russia_sanctions',
+        'pandemic_covid_19'
     ],
     'ds': pd.to_datetime([
-        '2020-03-15', 
-        '2021-03-23', 
-        '2022-02-24', 
-        '2021-08-01', 
-        '2022-06-01'
+        # ваш список
+        '2020-03-15',
+        '2021-03-23',
+        '2022-02-24',
+        '2021-08-01',
+        '2022-06-01',
+        # даты из датасета
+        '2020-03-01',   # COVID-19 oil crash
+        '2000-03-10',   # Dot-com crash
+        '2008-09-01',   # Global financial crisis
+        '2014-10-01',   # Oil price collapse
+        '2011-01-01',   # Arab Spring
+        '2014-03-01',   # Crimea crisis
+        '2003-03-01',   # Iraq War
+        '2012-01-01',   # Iran sanctions
+        '2014-03-01',   # Russia sanctions
+        '2020-03-01'    # COVID-19 pandemic
     ]),
     'lower_window': 0,
-    'upper_window': 180
+    'upper_window': 30
 })
 
 # === Обучение модели Prophet ===
 model = Prophet(
     yearly_seasonality=True,
+    holidays_prior_scale=25, 
     changepoint_prior_scale=2,
     holidays=crisis_events
 )
@@ -85,8 +110,8 @@ forecast = model.predict(future)
 # Объединяем прогноз с тестовой частью
 test = test.merge(forecast[['ds', 'yhat', 'trend']], left_on='Date', right_on='ds', how='left')
 test['yhat_exp'] = np.expm1(test['yhat'])
-print('KPP метрика = ', KPP_metrik_trend.KPP(test)*100, ' %')
-print('KPP_tan метрика = ', KPP_tan.KPP(test))
+print('KPP метрика = ', KPP_metrik_trend.KPP(test['Freight_Price'],test['yhat_exp'])*100, ' %')
+print('KPP_tan метрика = ', KPP_tan.KPP(test['Freight_Price'],test['yhat_exp']))
 # === Визуализация ===
 plt.figure(figsize=(14, 6))
 plt.plot(train['Date'], train['Freight_Price'], label='Тренировочные данные', color='blue')
