@@ -5,7 +5,8 @@ import pandas as pd
 import numpy as np
 from prophet import Prophet
 from lightgbm import LGBMRegressor, early_stopping, log_evaluation
-
+from KPP_metrik_trend import KPP
+import KPP_tan
 # === Загрузка и предобработка данных ===
 df = pd.read_csv('/Users/ignat/Desktop/Demand/demand_forecasting/data/ML.csv', parse_dates=['Date'])
 df['Date'] = pd.to_datetime(df['Date'])
@@ -34,11 +35,53 @@ prophet_train = prepare_df(df_train)
 prophet_future = prepare_df(df_test)
 
 # Holidays / critical events
+# crisis_events = pd.DataFrame({
+#     'holiday': ['covid_lockdown','suez_blockage','ukraine_conflict','china_port_closure','inflation_peak'],
+#     'ds': pd.to_datetime(['2020-03-15','2021-03-23','2022-02-24','2021-08-01','2022-06-01']),
+#     'lower_window': 0,
+#     'upper_window': 180
+# })
 crisis_events = pd.DataFrame({
-    'holiday': ['covid_lockdown','suez_blockage','ukraine_conflict','china_port_closure','inflation_peak'],
-    'ds': pd.to_datetime(['2020-03-15','2021-03-23','2022-02-24','2021-08-01','2022-06-01']),
+    'holiday': [
+        # из вашего исходного списка
+        'covid_lockdown',
+        'suez_blockage',
+        'ukraine_conflict',
+        'china_port_closure',
+        'inflation_peak',
+        # дополнительные кризисы из датасета
+        'covid_19_oil_crash',
+        'dot_com_crash',
+        'global_financial_crisis',
+        'oil_price_collapse',
+        'arab_spring',
+        'crimea_crisis',
+        'iraq_war',
+        'iran_sanctions',
+        'russia_sanctions',
+        'pandemic_covid_19'
+    ],
+    'ds': pd.to_datetime([
+        # ваш список
+        '2020-03-15',
+        '2021-03-23',
+        '2022-02-24',
+        '2021-08-01',
+        '2022-06-01',
+        # даты из датасета
+        '2020-03-01',   # COVID-19 oil crash
+        '2000-03-10',   # Dot-com crash
+        '2008-09-01',   # Global financial crisis
+        '2014-10-01',   # Oil price collapse
+        '2011-01-01',   # Arab Spring
+        '2014-03-01',   # Crimea crisis
+        '2003-03-01',   # Iraq War
+        '2012-01-01',   # Iran sanctions
+        '2014-03-01',   # Russia sanctions
+        '2020-03-01'    # COVID-19 pandemic
+    ]),
     'lower_window': 0,
-    'upper_window': 180
+    'upper_window': 30
 })
 
 # === Обучение Prophet ===
@@ -98,7 +141,8 @@ y_pred_exp = np.expm1(y_pred)
 y_test_exp = np.expm1(y_test)
 
 
-
+print('KPP метрика = ', KPP(y_test_exp,y_pred_exp)*100, ' %')
+print('KPP_tan метрика = ', KPP_tan.KPP(y_test_exp,y_pred_exp))
 # Оценка метрик
 mae = mean_absolute_error(y_test_exp, y_pred_exp)
 rmse = np.sqrt(mean_squared_error(y_test_exp, y_pred_exp))
@@ -107,9 +151,9 @@ print(f"MAE: {mae:.2f}, RMSE: {rmse:.2f}, MAPE: {mape:.3f}")
 
 # Визуализация результатов
 plt.figure(figsize=(14,6))
-plt.plot(df_train['Date'], df_train['Freight_Price'], label='Train')
-plt.plot(df_test['Date'], df_test['Freight_Price'], label='Test')
-plt.plot(df_test['Date'], y_pred_exp, '--', label='LGBM+Prophet')
+plt.plot(df_train['Date'], df_train['Freight_Price'], label='Train',color='blue')
+plt.plot(df_test['Date'], df_test['Freight_Price'], label='Test',color='blue')
+plt.plot(df_test['Date'], y_pred_exp, '--', label='LGBM+Prophet',color='red')
 plt.legend()
 plt.title('Объединенный прогноз Prophet + LightGBM')
 plt.xlabel('Date')
