@@ -12,7 +12,7 @@ def KPP(test,pred):
     HIT = 0
     MISSED = 0
     for i in range(len(test)-1):
-        if (pred[i+1]-pred[i]) * (test[i+1] - test[i])>=0:
+        if (pred[i+1]-pred[i]) * (test[i+1] - test[i])>0:
             HIT+=1
         else:
             MISSED+=1
