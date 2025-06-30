@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 MODELS = {
-    "Prophet":   "Ignat_prophet/1.py",
+    "Prophet":   "Ignat_prophet/NEW_predict.py",
     "Seq2seq w exogs": "belG/tcn_forecast.py",
     "LightGBM":  "arsen/gb_forecast.py"
 }
