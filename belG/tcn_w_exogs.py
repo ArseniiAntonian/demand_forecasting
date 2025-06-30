@@ -1,3 +1,4 @@
+from typing import List, Optional, Tuple
 import numpy as np
 import pandas as pd
 import tensorflow as tf
@@ -107,38 +108,56 @@ def create_sequences(
         ex.append( exog[i + n_input : i + n_input + n_output] )
     return np.array(enc), np.array(dec), np.array(ex)
 
-class DerivativeMatchingLoss(Loss):
+class DerivativeMatchingLoss(tf.keras.losses.Loss):
     def __init__(self,
                  alpha=1.0,
-                 crisis_weight=5.0,
-                 war_weight=3.0,
+                 w_financial=1.0,
+                 w_pandemic=1.0,
+                 w_geopolitical=1.0,
+                 w_natural=1.0,
+                 w_logistical=1.0,
                  name='derivative_matching_loss'):
         super().__init__(name=name)
-        self.alpha = alpha
-        self.crisis_weight = crisis_weight
-        self.war_weight = war_weight
-        self.eps = tf.keras.backend.epsilon()
+        self.alpha          = alpha
+        self.w_financial    = w_financial
+        self.w_pandemic     = w_pandemic
+        self.w_geopolitical = w_geopolitical
+        self.w_natural      = w_natural
+        self.w_logistical   = w_logistical
+        self.eps            = tf.keras.backend.epsilon()
 
     def call(self, y_true, y_pred):
-        # y_true: (batch, T, 3) -> [values, has_crisis, has_war]
-        y_vals     = y_true[..., 0:1]
-        crisis_mask= y_true[..., 1:2]
-        war_mask   = y_true[..., 2:3]
-        # составляем веса (аддитивно)
-        weights = (1.0
-                   + (self.crisis_weight - 1.0) * crisis_mask
-                   + (self.war_weight    - 1.0) * war_mask)
+        # извлекаем значения и по порядку — все 5 масок
+        y_vals        = y_true[..., 0:1]
+        mask_fin      = y_true[..., 1:2]
+        mask_pan      = y_true[..., 2:3]
+        mask_geo      = y_true[..., 3:4]
+        mask_nat      = y_true[..., 4:5]
+        mask_log      = y_true[..., 5:6]
+
+        # формируем общий вес в каждой точке времени
+        weights = (
+            1.0
+            + (self.w_financial    - 1.0) * mask_fin
+            + (self.w_pandemic     - 1.0) * mask_pan
+            + (self.w_geopolitical - 1.0) * mask_geo
+            + (self.w_natural      - 1.0) * mask_nat
+            + (self.w_logistical   - 1.0) * mask_log
+        )
+
         # базовый MAE с учётом весов
         abs_diff = tf.abs(y_vals - y_pred)
         loss_base = tf.reduce_sum(weights * abs_diff) / (tf.reduce_sum(weights) + self.eps)
-        # динамическая часть (MSE по разностям)
-        dy_true = y_vals[:, 1:, :] - y_vals[:, :-1, :]
-        dy_pred = y_pred[:, 1:, :] - y_pred[:, :-1, :]
-        sq_diff = tf.square(dy_true - dy_pred)
-        w1 = weights[:, 1:, :]
-        w0 = weights[:, :-1, :]
-        weights_dyn = (w1 + w0) / 2.0
-        loss_dyn = tf.reduce_sum(weights_dyn * sq_diff) / (tf.reduce_sum(weights_dyn) + self.eps)
+
+        # динамическая часть (MSE по первым разностям), аналогично с усреднёнными весами
+        dy_true   = y_vals[:,1:,:] - y_vals[:,:-1,:]
+        dy_pred   = y_pred[:,1:,:] - y_pred[:,:-1,:]
+        w1        = weights[:,1:,:]
+        w0        = weights[:,:-1,:]
+        weights_d = (w1 + w0) / 2.0
+        loss_dyn  = tf.reduce_sum(weights_d * tf.square(dy_true - dy_pred)) \
+                    / (tf.reduce_sum(weights_d) + self.eps)
+
         return loss_base + self.alpha * loss_dyn
     
 class VarianceRegularizerLoss(Loss):
@@ -177,7 +196,12 @@ def build_model(
     dec_dilations_groups: list = [[1,2], [1,2,4]],
     dec_dropout: float = 0.0,
     learning_rate: float = 1e-3,
-    k_attention: int = 4
+    k_attention: int = 4,
+    w_financial: float =8.0, 
+    w_pandemic: float = 8.0, 
+    w_geopolitical: float=8.0, 
+    w_natural: float=8.0, 
+    w_logistical: float=8.0
 ) -> tf.keras.Model:
     # 3.1 Энкодер
     enc_inputs = tf.keras.layers.Input((n_input, n_features), name='encoder_inputs')
@@ -217,7 +241,7 @@ def build_model(
     model = tf.keras.Model([enc_inputs, exog_inputs], outputs)
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
-        loss=DerivativeMatchingLoss(alpha=0.5, crisis_weight=10.0, war_weight=10.0),
+        loss=DerivativeMatchingLoss(alpha=0.5, w_financial=w_financial, w_pandemic=w_pandemic, w_geopolitical=w_geopolitical, w_natural=w_natural, w_logistical=w_logistical),
         metrics=[tf.keras.metrics.MeanAbsoluteError(name='mae'),
                  tf.keras.metrics.RootMeanSquaredError(name='rmse')]
     )
@@ -316,7 +340,8 @@ def tune_hyperparameters(
             n_input, n_features, n_output, n_exogs,
             params['enc_filters'], params['enc_kernel_size'], params['enc_dilations'], params['enc_dropout'],
             params['dec_filters'], params['dec_kernel_size'], params['dec_dilations'], params['dec_dropout'],
-            params['learning_rate'],
+            params['learning_rate'], w_financial=params['w_financial'], w_geopolitical=params['w_geopolitical'],
+            w_natural=params['w_natural'], w_logistical=params['w_logistical'],
             k_attention=params.get('k_attention', 2)
         )
 
@@ -382,15 +407,116 @@ def evaluate_and_plot(
 
 
 # Помощник для склейки таргетов и масок
-def make_y_with_masks(y_vals, exog):
-    # y_vals: (batch, T, 1), exog: (batch, T, 2) -> [has_crisis, has_war]
-    crisis = exog[..., 0:1]
-    war    = exog[..., 1:2]
-    return np.concatenate([y_vals, crisis, war], axis=-1)  # (batch, T, 3)
+def make_y_with_masks(y_vals: np.ndarray, exog: np.ndarray) -> np.ndarray:
+    # exog.shape = (batch, T, n_exog)
+    # cat_cols = [
+    #   'has_crisis_y','crisis_intensity','crisis_shock',
+    #   'crisis_type_Financial','crisis_type_Pandemic',
+    #   'crisis_type_Geopolitical','crisis_type_Natural','crisis_type_Logistical'
+    # ]
+    # Индексы масок типов кризисов в этой последовательности:
+    idxs = [3, 4, 5, 6, 7]
+    masks = [exog[..., i:i+1] for i in idxs]
+    # Собираем по каналу: [y_vals, mask_fin, mask_pan, mask_geo, mask_nat, mask_log]
+    return np.concatenate([y_vals] + masks, axis=-1)
 
-# Ваша main-функция с сохранением tune/train/inference
+def filter_and_apply_crises(
+    df_exog: pd.DataFrame,
+    crisis_events: pd.DataFrame,
+    include_types: Optional[List[str]]   = None,
+    exclude_types: Optional[List[str]]   = None,
+    include_events: Optional[List[str]]  = None,
+    exclude_events: Optional[List[str]]  = None,
+    include_period: Optional[Tuple[str,str]] = None,
+    exclude_period: Optional[Tuple[str,str]] = None,
+    date_col: str = "Date"
+) -> pd.DataFrame:
+    """
+    1) Фильтрует crisis_events по типам, именам и/или периодам.
+    2) Обнуляет все кризисные флаги в df_exog.
+    3) «Прорисовывает» отфильтрованные события в виде бинарных столбцов 
+       и при наличии — Intensity/Shock.
 
-def main(train: bool = True, tune: bool = False):
+    Аргументы:
+        df_exog        – DataFrame с колонкой date_col и кризисными флагами;
+        crisis_events  – DataFrame с ['Start','End','Name','Type', ...optional Intensity/Shock];
+        include_types  – список Type, которые _хочем_ оставить;
+        exclude_types  – список Type, которые _хочем_ убрать;
+        include_events – список Name, которые оставить;
+        exclude_events – список Name, которые убрать;
+        include_period – (start,end) — брать только события, полностью в этом диапазоне;
+        exclude_period – (start,end) — убрать все события, перекрывающие этот диапазон;
+        date_col       – имя колонки с датой в df_exog.
+    Возвращает:
+        новый DataFrame с обновлёнными кризисными флагами.
+    """
+    # 1) Фильтрация списка событий
+    ev = crisis_events.copy()
+    ev["Start"] = pd.to_datetime(ev["Start"])
+    ev["End"]   = pd.to_datetime(ev["End"])
+
+    if include_types:
+        ev = ev[ev["Type"].isin(include_types)]
+    if exclude_types:
+        ev = ev[~ev["Type"].isin(exclude_types)]
+    if include_events:
+        ev = ev[ev["Name"].isin(include_events)]
+    if exclude_events:
+        ev = ev[~ev["Name"].isin(exclude_events)]
+    if include_period:
+        s0,e0 = pd.to_datetime(include_period[0]), pd.to_datetime(include_period[1])
+        ev = ev[(ev["Start"] >= s0) & (ev["End"] <= e0)]
+    if exclude_period:
+        s1,e1 = pd.to_datetime(exclude_period[0]), pd.to_datetime(exclude_period[1])
+        ev = ev[~((ev["Start"] <= e1) & (ev["End"] >= s1))]
+
+    # 2) Подготовка df_exog
+    df = df_exog.copy()
+    df[date_col] = pd.to_datetime(df[date_col])
+    df = df.sort_values(date_col).reset_index(drop=True)
+
+    # Соберём список всех кризисных столбцов (примеры ваших имён)
+    crisis_flag_cols = [
+        "has_crisis_y",
+        "crisis_intensity",
+        "crisis_shock",
+        "crisis_type_Financial",
+        "crisis_type_Pandemic",
+        "crisis_type_Geopolitical",
+        "crisis_type_Natural",
+        "crisis_type_Logistical",
+    ]
+    # Обнуляем их
+    for c in crisis_flag_cols:
+        df[c] = 0
+
+    # 3) Накладываем каждый отфильтрованный кризис
+    for _, row in ev.iterrows():
+        mask = (df[date_col] >= row["Start"]) & (df[date_col] <= row["End"])
+
+        # всегда поднимаем общий флаг
+        df.loc[mask, "has_crisis_y"] = 1
+
+        # если есть Intensity/Shock в событиях, прокидываем
+        if "Intensity" in row:
+            df.loc[mask, "crisis_intensity"] = row["Intensity"]
+        if "Shock" in row:
+            df.loc[mask, "crisis_shock"] = row["Shock"]
+
+        # прокидываем бинарный столбец по типу
+        col_type = f"crisis_type_{row['Type']}"
+        if col_type in df.columns:
+            df.loc[mask, col_type] = 1
+
+    return df
+
+def main(train: bool = True, tune: bool = False, simulate: bool = False):
+    """Main function to run the TCN model with exogenous variables.
+    Args:
+        train (bool): If True, trains the model.
+        tune (bool): If True, performs hyperparameter tuning.
+        simulate (bool): If True, runs crisis impact simulation.
+    """
     check_device()
     df = load_data('data/ML_with_crisis.csv')
 
@@ -449,6 +575,11 @@ def main(train: bool = True, tune: bool = False):
             'batch_size':      [32, 64],
             'epochs':          [100],
             'k_attention':     [3,6,8],
+            'w_financial' : [8.0, 1.0, 5.0], 
+            'w_pandemic' : [8.0, 1.0, 5.0], 
+            'w_geopolitical': [8.0, 1.0, 5.0], 
+            'w_natural' : [8.0, 1.0, 5.0], 
+            'w_logistical': [8.0, 1.0, 5.0]
         }
         y_train_combined = make_y_with_masks(dec_y_train, dec_exog_train)
         best_params = tune_hyperparameters(
@@ -473,7 +604,9 @@ def main(train: bool = True, tune: bool = False):
             best_params['enc_dilations'], best_params['enc_dropout'],
             best_params['dec_filters'], best_params['dec_kernel_size'],
             best_params['dec_dilations'], best_params['dec_dropout'],
-            best_params['learning_rate'], k_attention=best_params['k_attention']
+            best_params['learning_rate'], k_attention=best_params['k_attention'],
+            w_financial=best_params['w_financial'], w_geopolitical=best_params['w_geopolitical'],
+            w_natural=best_params['w_natural'], w_logistical=best_params['w_logistical']
         )
 
         final_model.compile(
@@ -508,7 +641,9 @@ def main(train: bool = True, tune: bool = False):
             best_params['enc_dilations'], best_params['enc_dropout'],
             best_params['dec_filters'], best_params['dec_kernel_size'],
             best_params['dec_dilations'], best_params['dec_dropout'],
-            best_params['learning_rate'], k_attention=best_params['k_attention']
+            best_params['learning_rate'], k_attention=best_params['k_attention'],
+            w_financial=best_params['w_financial'], w_geopolitical=best_params['w_geopolitical'],
+            w_natural=best_params['w_natural'], w_logistical=best_params['w_logistical']
         )
 
         final_model.compile(
@@ -526,6 +661,70 @@ def main(train: bool = True, tune: bool = False):
             verbose=1
         )
         save_artifacts(final_model, scaler_X, scaler_y)
+
+    elif simulate:
+        # --- Inference-only: load model and weights ---
+        with open('belG/best_params_exogs_5y.json', 'r') as f:
+            best_params = json.load(f)
+        final_model = build_model(
+            N_INPUT, X_train.shape[1], N_OUTPUT, exog_train.shape[1],
+            best_params['enc_filters'], best_params['enc_kernel_size'],
+            best_params['enc_dilations'], best_params['enc_dropout'],
+            best_params['dec_filters'], best_params['dec_kernel_size'],
+            best_params['dec_dilations'], best_params['dec_dropout'],
+            best_params['learning_rate'], k_attention=best_params['k_attention']
+        )
+        final_model.load_weights(MODEL_PATH)
+
+        crisis_events = pd.DataFrame([
+            {
+                "Start":     "2008-09-01",
+                "End":       "2009-03-31",
+                "Name":      "Global Financial Crisis",
+                "Type":      "Financial",
+                "Intensity": 0.8,
+                "Shock":     1.2
+            },
+            {
+                "Start":     "2020-03-01",
+                "End":       "2021-06-30",
+                "Name":      "COVID-19 Pandemic",
+                "Type":      "Pandemic",
+                "Intensity": 1.0,
+                "Shock":     0.9
+            },
+            {
+                "Start":     "2014-03-01",
+                "End":       "2015-12-31",
+                "Name":      "Ukraine Sanctions Shock",
+                "Type":      "Geopolitical",
+                "Intensity": 0.6,
+                "Shock":     0.7
+            },
+            {
+                "Start":     "2011-03-11",
+                "End":       "2011-05-31",
+                "Name":      "Tohoku Earthquake & Tsunami",
+                "Type":      "Natural",
+                "Intensity": 0.5,
+                "Shock":     0.4
+            },
+            {
+                "Start":     "2022-06-01",
+                "End":       "2022-08-31",
+                "Name":      "Suez Canal Blockage",
+                "Type":      "Logistical",
+                "Intensity": 0.4,
+                "Shock":     0.3
+            }
+        ])
+
+        df_exog_filt = filter_and_apply_crises(
+            dec_exog_test,
+            crisis_events,
+            exclude_types=["Geopolitical", "Logistical", ""],         # отключить геополитические
+            exclude_period=("2020-03-01","2020-12-31"),  # отключить события 2020 года
+        )
 
     else:
         # --- Inference-only: load model and weights ---
@@ -584,4 +783,4 @@ def main(train: bool = True, tune: bool = False):
 
 
 if __name__ == '__main__':
-    main(train=False, tune=False)
+    main(train=True, tune=True, simulate=False)
