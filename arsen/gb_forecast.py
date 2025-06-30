@@ -7,13 +7,7 @@ def forecast_lgb(df_pred: pd.DataFrame):
     # 1) Загрузка и предобработка истории
     df_train = pd.read_csv('data/ML_with_crisis.csv')
 
-    df_train = df_train[['Date', 'Freight_Price', 'Oil_Price', 'crisis_COVID-19 oil crash',
-       'crisis_Dot-com crash', 'crisis_Global financial crisis',
-       'crisis_Inflation and rate hikes', 'crisis_Oil price collapse', 'war_Arab Spring', 'war_Iraq War',
-       'war_Ukraine War', 'sanctions_Iran sanctions',
-       'sanctions_Russia sanctions', 'quarter',
-       'is_year_end', 'sin_month', 'cos_month', 'has_crisis_x',
-       'has_war', 'has_sanctions', 'has_pandemic', 'has_crisis_y',
+    df_train = df_train[['Date', 'Freight_Price', 'Oil_Price', 'sin_month', 'cos_month',
        'crisis_intensity', 'crisis_shock', 'crisis_type_Financial',
        'crisis_type_Pandemic', 'crisis_type_Geopolitical',
        'crisis_type_Natural', 'crisis_type_Logistical']]
