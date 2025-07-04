@@ -5,7 +5,7 @@ import numpy as np
 from prophet import Prophet
 
 def forecast_prophet(data):
-    df_hist = pd.read_csv('/Users/ignat/Desktop/Demand/demand_forecasting/data/ML_with_crisis.csv', parse_dates=['Date'])
+    df_hist = pd.read_csv('data/ML_with_crisis.csv', parse_dates=['Date'])
     df_hist['Date'] = pd.to_datetime(df_hist['Date'])
     if data is not None:
         df = pd.concat([df_hist, data], ignore_index=True)
