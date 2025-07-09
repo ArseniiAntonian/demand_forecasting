@@ -13,7 +13,6 @@ def forecast_prophet(data):
         df = df_hist.copy()
 
     df['Date'] = pd.to_datetime(df['Date'])
-
     # === Фичи ===
     df['Oil_Lag1']      = df['Oil_Price'].shift(1)
     df['Oil_Lag2']      = df['Oil_Price'].shift(2)
@@ -23,8 +22,8 @@ def forecast_prophet(data):
     df['Oil_Change_1m'] = df['Oil_Price'].pct_change(periods=1)
     df['Log_Freight']   = np.log1p(df['Freight_Price'])
 
-    train = df[df['Date'] < '2025-01-03'].copy()
-    test = df[(df['Date'] >= '2025-01-03') & (df['Date'] <= '2030-01-03')].copy()
+    train = df[df['Date'] <= '2025-01-03'].copy()
+    test = df[(df['Date'] > '2025-01-03') & (df['Date'] <= '2030-01-03')].copy()
     
     used_features = [
         'Oil_Lag1',
