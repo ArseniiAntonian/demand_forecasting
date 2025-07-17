@@ -19,7 +19,7 @@ class TrendMetrics:
         return diffs.mean(), diffs.min(), diffs.max()
 
     def directional_accuracy(self) -> float:
-        correct = (self.delta_pred * self.delta_true >= 0).sum()
+        correct = (self.delta_pred * self.delta_true > 0).sum()
         total = len(self.delta_true)
         return correct / total if total else 0.0
 
