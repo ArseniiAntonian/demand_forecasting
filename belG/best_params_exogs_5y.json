@@ -1,6 +1,6 @@
 {
-  "enc_filters": 64,
-  "enc_kernel_size": 4,
+  "enc_filters": 256,
+  "enc_kernel_size": 8,
   "enc_dilations": [
     [
       1,
@@ -10,18 +10,16 @@
       1,
       2,
       4
-    ],
-    [
-      1,
-      2,
-      4,
-      8
     ]
   ],
   "enc_dropout": 0.0,
-  "dec_filters": 128,
-  "dec_kernel_size": 4,
+  "dec_filters": 256,
+  "dec_kernel_size": 2,
   "dec_dilations": [
+    [
+      1,
+      2
+    ],
     [
       1,
       2,
@@ -39,9 +37,18 @@
   "batch_size": 32,
   "epochs": 100,
   "k_attention": 6,
-  "w_financial": 1.0,
-  "w_pandemic": 5.0,
+  "w_financial": 8.0,
+  "w_pandemic": 1.0,
   "w_geopolitical": 8.0,
   "w_natural": 1.0,
-  "w_logistical": 5.0
+  "w_logistical": 1.0,
+  "wavelet": "db4",
+  "decomposition_level": 2,
+  "thresholding": "hard",
+  "threshold_sigma": 1.0,
+  "wavelet_neurons": 16,
+  "init_scale": 1.0,
+  "init_shift": 0.5,
+  "scale_regularization": 0.0001,
+  "shift_regularization": 0.001
 }
