@@ -15,6 +15,7 @@ import optuna
 from keras.optimizers import Adam
 import time
 from metrics import TrendMetrics
+import pywt
 
 # Параметры модели и путям к файлам
 N_INPUT = 12
@@ -182,6 +183,65 @@ class VarianceRegularizerLoss(Loss):
 
         return loss_base + self.beta * reg
 
+class WaveletTransformLayer(tf.keras.layers.Layer):
+    def __init__(self,
+                 wavelet: str = 'db4',
+                 level: int = 1,
+                 thresholding: str = 'soft',
+                 threshold_sigma: float = 2.0,
+                 wavelet_neurons: int = 16,
+                 init_scale: float = 1.0,
+                 init_shift: float = 0.0,
+                 scale_regularization: float = 0.0,
+                 shift_regularization: float = 0.0,
+                 mode='symmetric',
+                 **kwargs):
+        super().__init__(**kwargs)
+        # сохраняем все параметры
+        self.wavelet = wavelet
+        self.level = level
+        self.thresholding = thresholding
+        self.threshold_sigma = threshold_sigma
+        self.n_neurons = wavelet_neurons
+        self.init_scale = init_scale
+        self.init_shift = init_shift
+        self.scale_reg = scale_regularization
+        self.shift_reg = shift_regularization
+        self.mode = mode
+
+    def call(self, inputs):
+        # inputs: shape (batch, timesteps, features)
+        def denoise_series(x_np):
+            # x_np: 1D numpy array (timesteps,)
+            coeffs = pywt.wavedec(x_np, self.wavelet, mode=self.mode, level=self.level)
+            # вычисляем порог по первой детальной компоненте
+            sigma = self.threshold_sigma * np.std(coeffs[1])
+            # пороговая обработка detail-коэффициентов
+            if self.thresholding == 'soft':
+                coeffs[1:] = [pywt.threshold(c, sigma, 'soft') for c in coeffs[1:]]
+            else:
+                coeffs[1:] = [pywt.threshold(c, sigma, 'hard') for c in coeffs[1:]]
+            # реконструкция
+            return pywt.waverec(coeffs, self.wavelet, mode=self.mode)
+
+        def map_fn(sample):
+            # sample: (timesteps, features)
+            rec = []
+            for i in range(sample.shape[1]):
+                series = sample[:, i]
+                den = tf.numpy_function(
+                    func=denoise_series,
+                    inp=[series],
+                    Tout=tf.float32
+                )
+                den = tf.reshape(den, tf.shape(series))
+                rec.append(den)
+            # объединяем обратно в (timesteps, features)
+            return tf.stack(rec, axis=-1)
+
+        # применяем по каждому примеру в батче
+        return tf.map_fn(map_fn, inputs)
+
 def build_model(
     n_input: int,
     n_features: int,
@@ -201,11 +261,32 @@ def build_model(
     w_pandemic: float = 8.0, 
     w_geopolitical: float=8.0, 
     w_natural: float=8.0, 
-    w_logistical: float=8.0
+    w_logistical: float=8.0,
+
+    wavelet: str = 'db4',
+    decomposition_level: int = 1,
+    thresholding: str = 'soft',
+    threshold_sigma: float = 2.0,
+    wavelet_neurons: int = 16,
+    init_scale: float = 1.0,
+    init_shift: float = 0.0,
+    scale_regularization: float = 0.0,
+    shift_regularization: float = 0.0,
 ) -> tf.keras.Model:
     # 3.1 Энкодер
     enc_inputs = tf.keras.layers.Input((n_input, n_features), name='encoder_inputs')
-    x = enc_inputs
+
+    x = WaveletTransformLayer(wavelet=wavelet,
+            level=decomposition_level,
+            thresholding=thresholding,
+            threshold_sigma=threshold_sigma,
+            wavelet_neurons=wavelet_neurons,
+            init_scale=init_scale,
+            init_shift=init_shift,
+            scale_regularization=scale_regularization,
+            shift_regularization=shift_regularization,
+            name='wavelet_denoise')(enc_inputs)
+
     for idx, dil in enumerate(enc_dilations_groups):
         x = TCN(nb_filters=enc_filters, kernel_size=enc_kernel_size,
                 dilations=dil, dropout_rate=enc_dropout,
@@ -320,7 +401,7 @@ def tune_hyperparameters(
     n_output: int,
     n_exogs: int,
     param_grid: dict,
-    n_trials: int = 100,
+    n_trials: int = 10,
     validation_split: float = 0.2,
     save_path: str = 'best_params_optuna.json'
 ) -> dict:
@@ -342,7 +423,12 @@ def tune_hyperparameters(
             params['dec_filters'], params['dec_kernel_size'], params['dec_dilations'], params['dec_dropout'],
             params['learning_rate'], w_financial=params['w_financial'], w_geopolitical=params['w_geopolitical'],
             w_natural=params['w_natural'], w_logistical=params['w_logistical'],
-            k_attention=params.get('k_attention', 2)
+            k_attention=params.get('k_attention', 2),
+            wavelet=params.get('wavelet', 'db4'), decomposition_level= params.get('decomposition_level', 1),
+            thresholding=params.get('thresholding', 'soft'), threshold_sigma=params.get('threshold_sigma', 2.0),
+            wavelet_neurons=params.get('wavelet_neurons', 16), init_scale= params.get('init_scale', 1.0),
+            init_shift=params.get('init_shift', 0.0), scale_regularization= params.get('scale_regularization', 0.0),
+            shift_regularization=params.get('shift_regularization', 0.0)
         )
 
         # Обучаем модель и возвращаем финальный val_loss
@@ -579,14 +665,25 @@ def main(train: bool = True, tune: bool = False, simulate: bool = False):
             'w_pandemic' : [8.0, 1.0, 5.0], 
             'w_geopolitical': [8.0, 1.0, 5.0], 
             'w_natural' : [8.0, 1.0, 5.0], 
-            'w_logistical': [8.0, 1.0, 5.0]
+            'w_logistical': [8.0, 1.0, 5.0],
+
+            # Wavelet parameters
+            'wavelet':                 ['db4', 'sym5', 'coif3'],
+            'decomposition_level':     [1, 2, 3],
+            'thresholding':            ['soft', 'hard'],
+            'threshold_sigma':         [1.0, 2.0, 3.0],           # multiplier for σ in thresholding
+            'wavelet_neurons':         [8, 16, 32, 64],          # number of ψ₍a,b₎ units
+            'init_scale':              [0.5, 1.0, 2.0],          # initial aᵢ values
+            'init_shift':              [0.0, 0.5, 1.0],          # initial bᵢ values
+            'scale_regularization':    [0.0, 1e-4, 1e-3],        # L2 penalty on aᵢ
+            'shift_regularization':    [0.0, 1e-4, 1e-3],        # L2 penalty on bᵢ
         }
         y_train_combined = make_y_with_masks(dec_y_train, dec_exog_train)
         best_params = tune_hyperparameters(
             enc_X_train, dec_exog_train, y_train_combined,
             N_INPUT, X_train.shape[1], N_OUTPUT, exog_train.shape[1],
             param_grid,
-            n_trials=100,
+            n_trials=50,
             validation_split=0.2,
             save_path='belG/best_params_exogs_5y.json'
         )
@@ -606,7 +703,12 @@ def main(train: bool = True, tune: bool = False, simulate: bool = False):
             best_params['dec_dilations'], best_params['dec_dropout'],
             best_params['learning_rate'], k_attention=best_params['k_attention'],
             w_financial=best_params['w_financial'], w_geopolitical=best_params['w_geopolitical'],
-            w_natural=best_params['w_natural'], w_logistical=best_params['w_logistical']
+            w_natural=best_params['w_natural'], w_logistical=best_params['w_logistical'],
+            wavelet=best_params['wavelet'], decomposition_level=best_params['decomposition_level'],
+            thresholding=best_params['thresholding'], threshold_sigma=best_params['threshold_sigma'],
+            wavelet_neurons=best_params['wavelet_neurons'], init_scale=best_params['init_scale'],
+            init_shift=best_params['init_shift'], scale_regularization=best_params['scale_regularization'],
+            shift_regularization=best_params['shift_regularization']
         )
 
         final_model.compile(
@@ -643,7 +745,12 @@ def main(train: bool = True, tune: bool = False, simulate: bool = False):
             best_params['dec_dilations'], best_params['dec_dropout'],
             best_params['learning_rate'], k_attention=best_params['k_attention'],
             w_financial=best_params['w_financial'], w_geopolitical=best_params['w_geopolitical'],
-            w_natural=best_params['w_natural'], w_logistical=best_params['w_logistical']
+            w_natural=best_params['w_natural'], w_logistical=best_params['w_logistical'],
+            wavelet=best_params['wavelet'], decomposition_level=best_params['decomposition_level'],
+            thresholding=best_params['thresholding'], threshold_sigma=best_params['threshold_sigma'],
+            wavelet_neurons=best_params['wavelet_neurons'], init_scale=best_params['init_scale'],
+            init_shift=best_params['init_shift'], scale_regularization=best_params['scale_regularization'],
+            shift_regularization=best_params['shift_regularization']
         )
 
         final_model.compile(
@@ -730,13 +837,20 @@ def main(train: bool = True, tune: bool = False, simulate: bool = False):
         # --- Inference-only: load model and weights ---
         with open('belG/best_params_exogs_5y.json', 'r') as f:
             best_params = json.load(f)
-        final_model = build_model(
-            N_INPUT, X_train.shape[1], N_OUTPUT, exog_train.shape[1],
-            best_params['enc_filters'], best_params['enc_kernel_size'],
-            best_params['enc_dilations'], best_params['enc_dropout'],
-            best_params['dec_filters'], best_params['dec_kernel_size'],
-            best_params['dec_dilations'], best_params['dec_dropout'],
-            best_params['learning_rate'], k_attention=best_params['k_attention']
+            final_model = build_model(
+                N_INPUT, X_train.shape[1], N_OUTPUT, exog_train.shape[1],
+                best_params['enc_filters'], best_params['enc_kernel_size'],
+                best_params['enc_dilations'], best_params['enc_dropout'],
+                best_params['dec_filters'], best_params['dec_kernel_size'],
+                best_params['dec_dilations'], best_params['dec_dropout'],
+                best_params['learning_rate'], k_attention=best_params['k_attention'],
+                w_financial=best_params['w_financial'], w_geopolitical=best_params['w_geopolitical'],
+                w_natural=best_params['w_natural'], w_logistical=best_params['w_logistical'],
+                wavelet=best_params['wavelet'], decomposition_level=best_params['decomposition_level'],
+                thresholding=best_params['thresholding'], threshold_sigma=best_params['threshold_sigma'],
+                wavelet_neurons=best_params['wavelet_neurons'], init_scale=best_params['init_scale'],
+                init_shift=best_params['init_shift'], scale_regularization=best_params['scale_regularization'],
+                shift_regularization=best_params['shift_regularization']
         )
         final_model.load_weights(MODEL_PATH)
 
@@ -764,14 +878,52 @@ def main(train: bool = True, tune: bool = False, simulate: bool = False):
         'Predicted': pred_inv.flatten()
     }, index=dates)
 
+    crisis_types = {
+    'crisis_type_Financial': 'red',
+    'crisis_type_Pandemic': 'blue',
+    'crisis_type_Geopolitical': 'green',
+    'crisis_type_Natural': 'orange',
+    'crisis_type_Logistical': 'purple'
+    }
+
+    def plot_crisis_bands(df, crisis_column, color):
+        in_crisis = False
+        is_shock = False
+        intensity = 0
+        start_date = None
+
+        for idx, row in df.iterrows():
+            if row[crisis_column] == 1 and not in_crisis:
+                in_crisis = True
+                intensity = row['crisis_intensity']
+                if row['crisis_shock'] == 1:
+                    is_shock = True
+                start_date = idx
+            elif row[crisis_column] == 0 and in_crisis:
+                if is_shock:
+                    plt.axvspan(start_date, idx, color=color, alpha=intensity, label=crisis_column if start_date == idx else "", hatch='/')
+                else:
+                    plt.axvspan(start_date, idx, color=color, alpha=intensity, label=crisis_column if start_date == idx else "")
+                in_crisis = False
+                is_shock = False
+
+
+        if in_crisis:
+            plt.axvspan(start_date, df.index[-1], color=color, alpha=0.3)
+
+
+
     plt.figure()
     plt.plot(df.index, df['Freight_Price'], label='True')
     plt.plot(df_plot.index, df_plot['Predicted'], label='Predicted')
+    for crisis, color in crisis_types.items():
+        plot_crisis_bands(df, crisis, color)
     plt.title('Freight Price: True vs Predicted')
     plt.xlabel('Date')
     plt.ylabel('Price')
     plt.legend()
     plt.show()
+
 
     df_plot.rename(columns={'True': 'Freight_Price', 'Predicted': 'yhat_exp'}, inplace=True)
 
