@@ -34,10 +34,8 @@ BOT_TOKEN = "8144080240:AAEZelQNgc-OGGp-vdyQKT7eho_nKAWx9j4"
     AFTER_FORECAST,
     RANGE_START,
     RANGE_END,
-    FEEDBACK,
-    SELECT_START_YEAR, SELECT_START_MONTH, SELECT_END_YEAR, SELECT_END_MONTH,
-    SELECT_RANGE_START_YEAR, SELECT_RANGE_START_MONTH, SELECT_RANGE_END_YEAR, SELECT_RANGE_END_MONTH
-) = range(21)
+    FEEDBACK
+) = range(13)
 
 MODEL_OPTIONS = {
     'prophet': ('Модель 1',    forecast_prophet),
@@ -127,10 +125,8 @@ def start_states():
         SELECT_PREDEFINED_CRISES:  [CallbackQueryHandler(predefined_crises_chosen)],
         ASK_NUM_CRISES:            [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_num_crises)],
         SELECT_CRISIS_TYPE:        [CallbackQueryHandler(select_crisis_type)],
-        SELECT_START_YEAR:  [CallbackQueryHandler(start_year_chosen)],
-        SELECT_START_MONTH: [CallbackQueryHandler(start_month_chosen)],
-        SELECT_END_YEAR:    [CallbackQueryHandler(end_year_chosen)],
-        SELECT_END_MONTH:   [CallbackQueryHandler(end_month_chosen)],
+        CALENDAR_START:            [CallbackQueryHandler(calendar_start)],
+        CALENDAR_END:              [CallbackQueryHandler(calendar_end)],
         INPUT_SHOCK:              [CallbackQueryHandler(shock_chosen, pattern='^shock_')],
         INPUT_INTENSITY:           [MessageHandler(filters.TEXT & ~filters.COMMAND, input_intensity)],
         AFTER_FORECAST:            [
@@ -139,10 +135,8 @@ def start_states():
             CallbackQueryHandler(feedback_start, pattern='^feedback$'),
             CallbackQueryHandler(exit_bot,       pattern='^exit$'),
         ],
-        SELECT_RANGE_START_YEAR: [CallbackQueryHandler(range_start_year_chosen)],
-        SELECT_RANGE_START_MONTH:[CallbackQueryHandler(range_start_month_chosen)],
-        SELECT_RANGE_END_YEAR:   [CallbackQueryHandler(range_end_year_chosen)],
-        SELECT_RANGE_END_MONTH:  [CallbackQueryHandler(range_end_month_chosen)],
+        RANGE_START:               [CallbackQueryHandler(range_end)],
+        RANGE_END:                 [CallbackQueryHandler(range_end)],
         FEEDBACK:                  [MessageHandler(filters.TEXT & ~filters.COMMAND, feedback_received)],
     }
 
@@ -158,23 +152,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "  • Строит график фактических цен (2003–2025) и прогноз (2025–2030).\n"
         "  • Поддерживает три модели:\n" 
         "           1) Аддитивная модель временных рядов\n"
-        "           2) Нейросетевая модель\n"
-        "           3) Ансамблевый метод машинного обучения\n"
+        "           2) Нейросетевая модель\n "
+        "           3) Ансамблевый метод машинного обучения \n"
         "  • Учтёт ваши сценарии кризисов: тип, даты и интенсивность.\n\n"
         "Как начать работу:\n"
         "1️⃣ Шаг 1: Нажмите на кнопку с моделью, которую хотите использовать.\n"
         "2️⃣ Шаг 2: Выберите источник прогноза нефти — Brent или WTI.\n"
         "   • Brent — эталон для Европы и Азии, чувствителен к геополитике.\n"
         "   • WTI — ориентир для США, более волатилен и зависит от внутренней добычи.\n"
-        "3️⃣ Шаг 3: Укажите кризисы, которые следует учесть:\n"
-        "   • Вы можете:\n"
-        "     – Выбрать из готового списка (до 7 кризисов)\n"
-        "     – И/Или ввести собственные сценарии вручную\n"
-        "   • Для каждого кризиса указываются:\n"
-        "     – Тип (финансовый, геополитический и т. д.)\n"
-        "     – Дата начала и окончания\n"
-        "     – Интенсивность (0–100%) — отражает силу и длительность воздействия\n"
-        "     – Шоковость (да/нет) — указывает, произошло ли событие резко или развивалось постепенно.\n\n"
+        "3️⃣ Шаг 3: Укажите, сколько кризисов заложить (0–10).\n"
+        "   – Для каждого кризиса выберите:\n"
+        "     • Тип кризиса (финансовый, пандемический и т. д.).\n"
+        "     • Дату начала и окончания через календарь.\n"
+        "     • Интенсивность в процентах (0–100%) — отражает силу и длительность воздействия.\n"
+        "     • Шоковость (да/нет) — указывает, произошло ли событие резко или развивалось постепенно.\n\n"
         "4️⃣ Шаг 4: Дождитесь построения графика. После будут четыре кнопки:\n"
         "   • «Повторить прогноз» — начать всё сначала.\n"
         "   • «Выбрать интервал прогноза» — посмотреть прогноз за выбранный период.\n"
@@ -182,7 +173,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "   • «Выход» — завершить работу бота.\n\n"
         "После прогноза вы сможете вернуться и снова выбрать модель, указать новые кризисы или просто выйти."
     )
-
     await msg.reply_text(welcome)
     kb = [[InlineKeyboardButton(name, callback_data=key)]
           for key,(name,_) in MODEL_OPTIONS.items()]
@@ -234,8 +224,7 @@ async def oil_source_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     # Строим список предопределённых кризисов
-    lines = ['*Выберите от 1 до 7 кризисов, которые будут учитываться в прогнозе (Можно выбрать один, несколько или все), также вы можете задать параметры кризисов вручную, нажав на кнопку "Ввести вручную".*\n\n'
-    '*Список кризисов:*']
+    lines = ['*Выберите кризисы:*']
     kb = []
     for idx, c in enumerate(PREDEFINED_CRISES, start=1):
         date_range = f'{c["start"][:7]}–{c["end"][:7]}'
@@ -273,8 +262,7 @@ async def oil_source_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def predefined_crises_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer()
+    q = update.callback_query; await q.answer()
     d = q.data
 
     if d == 'no_crises':
@@ -283,20 +271,7 @@ async def predefined_crises_chosen(update: Update, context: ContextTypes.DEFAULT
         return await launch_forecast(update, context)
 
     if d == 'manual_crises':
-        # Добавляем уже выбранные предопределённые кризисы (если есть)
-        sel = context.user_data.get('pre_selected', [])
-        if sel:
-            context.user_data.setdefault('crises', [])
-            for i in sel:
-                context.user_data['crises'].append({
-                    'type': PREDEFINED_CRISES[i-1]['type'],
-                    'start': PREDEFINED_CRISES[i-1]['start'],
-                    'end':   PREDEFINED_CRISES[i-1]['end'],
-                    'intensity': PREDEFINED_CRISES[i-1]['intensity'],
-                    'shock':     PREDEFINED_CRISES[i-1]['shock']
-                })
-        # Переходим к ручному вводу количества кризисов
-        await q.message.reply_text('Сколько дополнительных кризисов (0–10)?')
+        await q.message.reply_text('Сколько кризисов (0–10)?')
         return ASK_NUM_CRISES
 
     if d == 'pre_done':
@@ -326,7 +301,6 @@ async def predefined_crises_chosen(update: Update, context: ContextTypes.DEFAULT
             await q.message.reply_text(f'Добавлен кризис {i}')
         return SELECT_PREDEFINED_CRISES
 
-
 async def ask_num_crises(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         n = int(update.message.text.strip())
@@ -334,33 +308,27 @@ async def ask_num_crises(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except:
         await update.message.reply_text('Введите число от 0 до 10.')
         return ASK_NUM_CRISES
-
-    # Считаем уже выбранные (предопределённые) кризисы
-    existing = len(context.user_data.get('crises', []))
-    context.user_data['num_crises'] = existing + n
-    context.user_data.setdefault('crises', [])
-
-    # Если ничего не нужно добавлять — запускаем прогноз
+    context.user_data['num_crises'] = n
+    context.user_data['crises'] = []
     if n == 0:
         return await launch_forecast(update, context)
-
-    # Начинаем нумерацию с корректного номера
-    context.user_data['current'] = existing + 1
-
-    # Строим клавиатуру типов кризисов
+    context.user_data['current'] = 1
     kb = [[InlineKeyboardButton(label, callback_data=key)]
           for key, label in CRISIS_TYPES.items()]
     await update.message.reply_text(
-        f'Выберите тип кризиса #{context.user_data["current"]}:',
+        'Выберите тип кризиса #1:',
         reply_markup=InlineKeyboardMarkup(kb)
     )
     return SELECT_CRISIS_TYPE
 
-
 async def select_crisis_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query; await q.answer()
+    q = update.callback_query
+    await q.answer()
+
+    # 1) Удаляем сообщение с кнопками
     await q.message.delete()
 
+    # 2) Сохраняем выбор и выводим эхо
     ctype_key = q.data
     idx = context.user_data['current']
     context.user_data['crises'].append({'type': ctype_key})
@@ -370,117 +338,134 @@ async def select_crisis_type(update: Update, context: ContextTypes.DEFAULT_TYPE)
         parse_mode='Markdown'
     )
 
-    # теперь вместо DetailedTelegramCalendar запускаем выбор года
-    years = list(range(2025, 2031))
-    kb = [[InlineKeyboardButton(str(y), callback_data=str(y))] for y in years]
+    # 3) Спрашиваем дату начала с помощью календаря
+    cal, _ = DetailedTelegramCalendar(
+        min_date=date(2025, 1, 1),
+        max_date=date(2030, 12, 31)
+    ).build()
     await context.bot.send_message(
         chat_id=q.message.chat.id,
-        text=f'Выберите год начала кризиса #{idx}:',
-        reply_markup=InlineKeyboardMarkup(kb)
+        text=f'Выберите дату начала для кризиса #{idx} ({CRISIS_TYPES[ctype_key]}):',
+        reply_markup=cal
     )
-    return SELECT_START_YEAR
-async def start_year_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    return CALENDAR_START
+
+async def calendar_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query; await q.answer()
-    year = int(q.data)
-    context.user_data['crises'][-1]['start_year'] = year
-    await q.message.delete()
-
-    MONTHS = [
-        ("Январь","01"),("Февраль","02"),("Март","03"),("Апрель","04"),
-        ("Май","05"),("Июнь","06"),("Июль","07"),("Август","08"),
-        ("Сентябрь","09"),("Октябрь","10"),("Ноябрь","11"),("Декабрь","12")
-    ]
-    kb = [[InlineKeyboardButton(name, callback_data=code)] for name,code in MONTHS]
-    await context.bot.send_message(
-        chat_id=q.message.chat.id,
-        text='Выберите месяц начала:',
-        reply_markup=InlineKeyboardMarkup(kb)
+    cal_obj = DetailedTelegramCalendar(
+        min_date=date(2025, 1, 1),
+        max_date=date(2030, 12, 31)
     )
-    return SELECT_START_MONTH
+    result, cal, step = cal_obj.process(q.data)
+    if result is None and cal:
+        await q.edit_message_text(text=step, reply_markup=cal)
+        return CALENDAR_START
+    if result is None and cal is None:
+        await context.bot.delete_message(chat_id=q.message.chat.id, message_id=q.message.message_id)
+        cal2, _ = cal_obj.build()
+        await q.message.reply_text('Неверный ввод даты начала. Выберите снова:', reply_markup=cal2)
+        return CALENDAR_START
 
-# === Новый хендлер: обработка выбранного месяца начала
-async def start_month_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query; await q.answer()
-    month = int(q.data)
-    year = context.user_data['crises'][-1]['start_year']
-    start_dt = date(year, month, 1)
-    context.user_data['crises'][-1]['start'] = start_dt.isoformat()
-    await q.message.delete()
-    await context.bot.send_message(
-        chat_id=q.message.chat.id,
-        text=f'Дата начала: *{start_dt.strftime("%Y-%m")}*',
-        parse_mode='Markdown'
+    # Сбрасываем день на 1 и сохраняем год-месяц
+    result = result.replace(day=1)
+    await q.edit_message_text(f'Дата начала: {result.strftime("%Y-%m")}')
+    context.user_data['crises'][-1]['start'] = result.isoformat()
+
+    # Дальше выбор даты окончания
+    cal2, _ = cal_obj.build()
+    await q.message.reply_text('Выберите месяц и год окончания:', reply_markup=cal2)
+    return CALENDAR_END
+
+
+async def range_end(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    cal_obj = DetailedTelegramCalendar(
+        min_date=date(2025, 1, 1),
+        max_date=date(2030, 12, 31)
     )
+    result, cal, step = cal_obj.process(q.data)
 
-    years = list(range(year, 2031))
-    kb = [[InlineKeyboardButton(str(y), callback_data=str(y))] for y in years]
-    await context.bot.send_message(
-        chat_id=q.message.chat.id,
-        text='Выберите год окончания:',
-        reply_markup=InlineKeyboardMarkup(kb)
-    )
-    return SELECT_END_YEAR
+    # Листаем календарь
+    if result is None and cal:
+        await q.edit_message_text(text=step, reply_markup=cal)
+        return RANGE_END
 
-# === Новый хендлер: обработка выбранного года окончания
-async def end_year_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query; await q.answer()
-    end_year = int(q.data)
-    context.user_data['crises'][-1]['end_year'] = end_year
-    await q.message.delete()
-
-    MONTHS = [
-        ("Январь","01"),("Февраль","02"),("Март","03"),("Апрель","04"),
-        ("Май","05"),("Июнь","06"),("Июль","07"),("Август","08"),
-        ("Сентябрь","09"),("Октябрь","10"),("Ноябрь","11"),("Декабрь","12")
-    ]
-    kb = [[InlineKeyboardButton(name, callback_data=code)] for name,code in MONTHS]
-    await context.bot.send_message(
-        chat_id=q.message.chat.id,
-        text='Выберите месяц окончания:',
-        reply_markup=InlineKeyboardMarkup(kb)
-    )
-    return SELECT_END_MONTH
-
-# === Новый хендлер: обработка выбранного месяца окончания
-async def end_month_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query; await q.answer()
-    month = int(q.data)
-    year = context.user_data['crises'][-1]['end_year']
-    end_dt = date(year, month, 1)
-
-    start_ts = pd.to_datetime(context.user_data['crises'][-1]['start'])
-    if pd.Timestamp(end_dt) < start_ts:
-        await q.message.delete()
-        # заново предлагаем выбрать год окончания, начиная с года начала
-        start_year = context.user_data['crises'][-1]['start_year']
-        years = list(range(start_year, 2031))
-        kb = [[InlineKeyboardButton(str(y), callback_data=str(y))] for y in years]
-        await context.bot.send_message(
+    # Неверный ввод
+    if result is None and cal is None:
+        await context.bot.delete_message(
             chat_id=q.message.chat.id,
-            text='❗ Дата окончания раньше начала. Выберите год окончания заново.',
-            reply_markup=InlineKeyboardMarkup(kb)
+            message_id=context.user_data.pop('range_msg_id')
         )
-        return SELECT_END_YEAR
+        cal2, _ = cal_obj.build()
+        msg = await q.message.reply_text(
+            '❗ Неверный ввод. Попробуйте снова.',
+            reply_markup=cal2
+        )
+        context.user_data['range_msg_id'] = msg.message_id
+        return RANGE_END
 
-    context.user_data['crises'][-1]['end'] = end_dt.isoformat()
-    await q.message.delete()
-    await context.bot.send_message(
+    # Фиксация начала/конца
+    if 'range_start' not in context.user_data:
+        await context.bot.delete_message(
+            chat_id=q.message.chat.id,
+            message_id=context.user_data.pop('range_msg_id')
+        )
+        context.user_data['range_start'] = result
+        await q.message.reply_text(f'Начало диапазона: {result}')
+        cal2, _ = cal_obj.build()
+        msg = await q.message.reply_text(
+            'Теперь выберите конец диапазона:',
+            reply_markup=cal2
+        )
+        context.user_data['range_msg_id'] = msg.message_id
+        return RANGE_END
+
+    # Проверка порядка
+    start_ts = pd.to_datetime(context.user_data['range_start'])
+    end_ts = pd.to_datetime(result)
+    if end_ts < start_ts:
+        await context.bot.delete_message(
+            chat_id=q.message.chat.id,
+            message_id=context.user_data.pop('range_msg_id')
+        )
+        cal2, _ = cal_obj.build()
+        msg = await q.message.reply_text(
+            '❗ Конец раньше начала! Попробуйте снова.',
+            reply_markup=cal2
+        )
+        context.user_data['range_msg_id'] = msg.message_id
+        return RANGE_END
+
+    # Всё ок
+    await context.bot.delete_message(
         chat_id=q.message.chat.id,
-        text=f'Дата окончания: *{end_dt.strftime("%Y-%m")}*',
-        parse_mode='Markdown'
+        message_id=context.user_data.pop('range_msg_id')
     )
+    context.user_data['range_end'] = result
+    await q.message.reply_text(f'Конец диапазона: {result}')
 
-    kb = [
-        [InlineKeyboardButton('Да', callback_data='shock_yes'),
-         InlineKeyboardButton('Нет', callback_data='shock_no')]
+    df_pred = context.user_data['df_pred']
+    df_slice = df_pred[(df_pred.index >= start_ts) & (df_pred.index <= end_ts)]
+
+    buf = BytesIO()
+    fig, ax = plt.subplots(figsize=(14, 6))
+    ax.plot(df_slice.index, df_slice['Forecast'], '-', label='Прогноз')
+    ax.set_ylim(0, 1200)
+    ax.set_title(f'Прогноз с {start_ts.date()} по {end_ts.date()}')
+    ax.legend(); ax.grid(True)
+    fig.savefig(buf, format='png', bbox_inches='tight'); buf.seek(0)
+    await q.message.reply_photo(photo=buf)
+
+    keyboard = [
+        [InlineKeyboardButton("Повторить прогноз", callback_data="repeat")],
+        [InlineKeyboardButton("Выбрать диапазон прогноза", callback_data="range")],
+        [InlineKeyboardButton("Оставить отзыв", callback_data="feedback")],
+        [InlineKeyboardButton("Выход", callback_data="exit")]
     ]
-    await context.bot.send_message(
-        chat_id=q.message.chat.id,
-        text='Шоковый кризис?(Шоковость (да/нет) — указывает, произошло ли событие резко или развивалось постепенно.)',
-        reply_markup=InlineKeyboardMarkup(kb)
-    )
-    return INPUT_SHOCK
-    
+    await q.message.reply_text('Что дальше?', reply_markup=InlineKeyboardMarkup(keyboard))
+    return AFTER_FORECAST
+
 async def shock_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
@@ -553,22 +538,12 @@ async def launch_forecast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return await run_forecast(update, context)
 
 async def run_forecast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Запускает прогноз, выводит график истории и прогноза с шапкой,
-    содержащей выбор пользователя (модель, нефть, список кризисов),
-    и подписывает ось Y как USD.
-    """
-    # Определяем, куда отправлять сообщения
     msg = update.callback_query.message if update.callback_query else update.message
-    # Показываем индикатор загрузки
     loading = await msg.reply_text("⏳ Генерация прогноза, пожалуйста, подождите...")
-
-    # --- Загрузка и подготовка данных ---
     df_hist = pd.read_csv('data/ML_with_crisis.csv', parse_dates=['Date'])
     last_oil = df_hist['Oil_Price'].iloc[-1]
     dates = pd.date_range('2025-01-01', '2030-12-01', freq='MS')
-
-    # Строим exogenous dataframe с кризисами
+    # build exogenous crises series
     ints = pd.Series(0.0, index=dates)
     shocks = pd.Series(0.0, index=dates)
     for c in context.user_data.get('crises', []):
@@ -583,7 +558,6 @@ async def run_forecast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'crisis_shock': shocks.values,
         'has_crisis': (ints.values > 0).astype(float),
     })
-    # dummy-переменные по типам кризисов
     for ct in CRISIS_TYPES:
         df_exog[f'crisis_type_{ct}'] = 0.0
     for c in context.user_data.get('crises', []):
@@ -591,16 +565,11 @@ async def run_forecast(update: Update, context: ContextTypes.DEFAULT_TYPE):
             mask = (df_exog['Date'] >= pd.to_datetime(c['start'])) & \
                    (df_exog['Date'] <= pd.to_datetime(c['end']))
             df_exog.loc[mask, f'crisis_type_{c["type"]}'] = 1.0
-
-    # Убираем сообщение "жду"
-    # await context.bot.delete_message(chat_id=loading.chat.id, message_id=loading.message_id)
-
-    # Запускаем выбранную модель
     key, model_func = context.user_data['model_key'], MODEL_OPTIONS[context.user_data['model_key']][1]
+    # existing model branches unchanged...
     if key == 'prophet':
         _, prophet_df = model_func(df_exog)
-        df_pred = (prophet_df
-                   .rename(columns={'yhat_exp': 'Forecast'})
+        df_pred = (prophet_df.rename(columns={'yhat_exp': 'Forecast'})
                    .set_index('Date')[['Forecast']])
     elif key == 'tcn':
         df_forecast, _ = model_func(df_exog)
@@ -609,213 +578,135 @@ async def run_forecast(update: Update, context: ContextTypes.DEFAULT_TYPE):
             df_pred = df_forecast.set_index('Date')[['Forecast']]
         else:
             df_pred = df_forecast[['Forecast']]
-    else:  # LightGBM
+    else:
         df_train_full = pd.read_csv('data/ML.csv', parse_dates=['Date'])
         last_hist = df_train_full['Date'].max()
         df_new = df_exog[df_exog['Date'] > last_hist].copy()
         _, y_forecast = model_func(df_new)
-        df_raw = pd.DataFrame({
-            'Date': pd.to_datetime(y_forecast.index),
-            'Forecast': y_forecast.values
-        })
+        df_raw = pd.DataFrame({'Date': pd.to_datetime(y_forecast.index), 'Forecast': y_forecast.values})
         df_pred = df_raw.set_index('Date')[['Forecast']]
-
-    # Сохраняем прогноз в user_data для дальнейших действий
     context.user_data['df_pred'] = df_pred
-
-    # --- Заголовок с выбором пользователя ---
-    model_name = MODEL_OPTIONS[key][0]
-    oil        = context.user_data['oil_source'].upper()
-    crises     = context.user_data.get('crises', [])
-
-    if crises:
-        lines = []
-        for i, c in enumerate(crises, start=1):
-            lines.append(
-                f"{i}) {CRISIS_TYPES[c['type']]} "
-                f"{c['start'][:7]}–{c['end'][:7]}, "
-                f"шок:{'да' if c['shock'] else 'нет'}, "
-                f"инт.:{int(c['intensity']*100)}%"
-            )
-        crises_block = "\n".join(lines)
-    else:
-        crises_block = "Без кризисов"
-
-    header = (
-        f"Модель: {model_name}; Нефть: {oil}\n"
-        f"Кризисы:\n{crises_block}"
-    )
-
-    # --- Рисуем график ---
-    fig, ax = plt.subplots(figsize=(14, 6))
-    ax.plot(df_hist['Date'], df_hist['Freight_Price'],
-            label='История 2003–2025')
-    ax.plot(df_pred.index, df_pred['Forecast'],
-            '-', label='Прогноз 2025–2030', color='orange')
-    ax.set_ylim(0, max(df_hist['Freight_Price'].max(), df_pred['Forecast'].max()) * 1.1)
-    ax.set_ylabel('USD')
-    ax.set_title(header, loc='left')
-    ax.legend()
-    ax.grid(True)
-
-    buf = BytesIO()
-    fig.savefig(buf, format='png', bbox_inches='tight')
-    buf.seek(0)
     await context.bot.delete_message(chat_id=loading.chat.id, message_id=loading.message_id)
-    # Отправляем картинку
+    fig, ax = plt.subplots(figsize=(14, 6))
+    ax.plot(df_hist['Date'], df_hist['Freight_Price'], label='История 2003–2025')
+    ax.plot(df_pred.index, df_pred['Forecast'], '-', label='Прогноз 2025–2030')
+    ax.set_ylim(0, 2200)
+    ax.set_title('История и прогноз')
+    ax.legend(); ax.grid(True)
+    buf = BytesIO(); fig.savefig(buf, format='png', bbox_inches='tight'); buf.seek(0)
     await msg.reply_photo(photo=buf)
-
-    # Финальное меню действий
     keyboard = [
         [InlineKeyboardButton("Повторить прогноз", callback_data="repeat")],
         [InlineKeyboardButton("Выбрать диапазон прогноза", callback_data="range")],
         [InlineKeyboardButton("Оставить отзыв", callback_data="feedback")],
-        [InlineKeyboardButton("Выход", callback_data="exit")],
+        [InlineKeyboardButton("Выход", callback_data="exit")]
     ]
     await msg.reply_text('Что дальше?', reply_markup=InlineKeyboardMarkup(keyboard))
     return AFTER_FORECAST
 
-
 async def range_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query; await q.answer()
-    await q.message.delete()
-    years = list(range(2025, 2031))
-    kb = [[InlineKeyboardButton(str(y), callback_data=str(y))] for y in years]
-    await context.bot.send_message(
-        chat_id=q.message.chat.id,
-        text='Выберите год начала диапазона:',
-        reply_markup=InlineKeyboardMarkup(kb)
-    )
-    return SELECT_RANGE_START_YEAR
+    cal, _ = DetailedTelegramCalendar(min_date=date(2025, 1, 1), max_date=date(2030, 12, 31)).build()
+    msg = await q.message.reply_text('Выберите месяц и год начала диапазона прогноза:', reply_markup=cal)
+    context.user_data['range_msg_id'] = msg.message_id
+    return RANGE_START
 
-async def range_start_year_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def calendar_end(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query; await q.answer()
-    start_year = int(q.data)
-    context.user_data['range_start_year'] = start_year
-    await q.message.delete()
+    cal_obj = DetailedTelegramCalendar(min_date=date(2025, 1, 1), max_date=date(2030, 12, 31))
+    result, cal, step = cal_obj.process(q.data)
+    if result is None and cal:
+        await q.edit_message_text(text=step, reply_markup=cal)
+        return CALENDAR_END
+    if result is None and cal is None:
+        await context.bot.delete_message(chat_id=q.message.chat.id, message_id=q.message.message_id)
+        cal2, _ = cal_obj.build()
+        await q.message.reply_text('Неверный ввод даты окончания. Выберите снова:', reply_markup=cal2)
+        return CALENDAR_END
 
-    MONTHS = [
-        ("Январь","01"),("Февраль","02"),("Март","03"),("Апрель","04"),
-        ("Май","05"),("Июнь","06"),("Июль","07"),("Август","08"),
-        ("Сентябрь","09"),("Октябрь","10"),("Ноябрь","11"),("Декабрь","12")
+    # Сбрасываем день и проверяем порядок
+    result = result.replace(day=1)
+    start_ts = pd.to_datetime(context.user_data['crises'][-1]['start'])
+    end_ts   = pd.to_datetime(result)
+    if end_ts < start_ts:
+        await context.bot.delete_message(chat_id=q.message.chat.id, message_id=q.message.message_id)
+        cal2, _ = cal_obj.build()
+        await q.message.reply_text('Дата окончания раньше начала! Выберите снова:', reply_markup=cal2)
+        return CALENDAR_END
+
+    # Фиксируем окончание
+    await q.edit_message_text(f'Дата окончания: {result.strftime("%Y-%m")}')
+    context.user_data['crises'][-1]['end'] = result.isoformat()
+
+    # Переход к выбору шока
+    kb = [
+        [InlineKeyboardButton('Да', callback_data='shock_yes'),
+         InlineKeyboardButton('Нет', callback_data='shock_no')]
     ]
-    kb = [[InlineKeyboardButton(name, callback_data=code)] for name,code in MONTHS]
-    await context.bot.send_message(
-        chat_id=q.message.chat.id,
-        text='Выберите месяц начала диапазона:',
-        reply_markup=InlineKeyboardMarkup(kb)
-    )
-    return SELECT_RANGE_START_MONTH
+    await q.message.reply_text('Шоковый кризис? Нажмите кнопку:', reply_markup=InlineKeyboardMarkup(kb))
+    return INPUT_SHOCK
 
-# 4) Выбор месяца начала → запрос года конца
-async def range_start_month_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def range_end(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query; await q.answer()
-    m = int(q.data)
-    y = context.user_data['range_start_year']
-    context.user_data['range_start'] = date(y, m, 1).isoformat()
-    await q.message.delete()
-    await context.bot.send_message(
-        chat_id=q.message.chat.id,
-        text=f'Начало диапазона: *{y}-{m:02d}*',
-        parse_mode='Markdown'
-    )
+    cal_obj = DetailedTelegramCalendar(min_date=date(2025, 1, 1), max_date=date(2030, 12, 31))
+    result, cal, step = cal_obj.process(q.data)
+    if result is None and cal:
+        await q.edit_message_text(text=step, reply_markup=cal)
+        return RANGE_END
+    if result is None and cal is None:
+        if 'range_msg_id' in context.user_data:
+            await context.bot.delete_message(chat_id=q.message.chat.id, message_id=context.user_data.pop('range_msg_id'))
+        cal2, _ = cal_obj.build()
+        msg = await q.message.reply_text('❗ Неверный ввод. Попробуйте снова.', reply_markup=cal2)
+        context.user_data['range_msg_id'] = msg.message_id
+        return RANGE_END
 
-    years = list(range(y, 2031))
-    kb = [[InlineKeyboardButton(str(year), callback_data=str(year))] for year in years]
-    await context.bot.send_message(
-        chat_id=q.message.chat.id,
-        text='Выберите год конца диапазона:',
-        reply_markup=InlineKeyboardMarkup(kb)
-    )
-    return SELECT_RANGE_END_YEAR
+    # Если первый выбор — начало диапазона
+    if 'range_start' not in context.user_data:
+        if 'range_msg_id' in context.user_data:
+            await context.bot.delete_message(chat_id=q.message.chat.id, message_id=context.user_data.pop('range_msg_id'))
+        result = result.replace(day=1)
+        context.user_data['range_start'] = result
+        await q.message.reply_text(f'Начало диапазона: {result.strftime("%Y-%m")}')
+        cal2, _ = cal_obj.build()
+        msg = await q.message.reply_text('Теперь выберите месяц и год конца диапазона:', reply_markup=cal2)
+        context.user_data['range_msg_id'] = msg.message_id
+        return RANGE_END
 
-# 5) Выбор года конца → запрос месяца конца
-async def range_end_year_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query; await q.answer()
-    end_year = int(q.data)
-    context.user_data['range_end_year'] = end_year
-    await q.message.delete()
-
-    MONTHS = [
-        ("Январь","01"),("Февраль","02"),("Март","03"),("Апрель","04"),
-        ("Май","05"),("Июнь","06"),("Июль","07"),("Август","08"),
-        ("Сентябрь","09"),("Октябрь","10"),("Ноябрь","11"),("Декабрь","12")
-    ]
-    kb = [[InlineKeyboardButton(name, callback_data=code)] for name,code in MONTHS]
-    await context.bot.send_message(
-        chat_id=q.message.chat.id,
-        text='Выберите месяц конца диапазона:',
-        reply_markup=InlineKeyboardMarkup(kb)
-    )
-    return SELECT_RANGE_END_MONTH
-
-# 6) Выбор месяца конца → финализируем и рисуем график
-async def range_end_month_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query; await q.answer()
-    month = int(q.data)
-    year  = context.user_data['range_end_year']
-    end_dt = date(year, month, 1)
-
-    # Проверка порядка
+    # Фиксируем конец диапазона
+    result = result.replace(day=1)
     start_ts = pd.to_datetime(context.user_data['range_start'])
-    if pd.Timestamp(end_dt) < start_ts:
-        await q.message.delete()
-        await context.bot.send_message(
-            chat_id=q.message.chat.id,
-            text='❗ Конец раньше начала! Начните выбор конца года заново.'
-        )
-        return SELECT_RANGE_END_YEAR
+    end_ts   = pd.to_datetime(result)
+    if end_ts < start_ts:
+        if 'range_msg_id' in context.user_data:
+            await context.bot.delete_message(chat_id=q.message.chat.id, message_id=context.user_data.pop('range_msg_id'))
+        cal2, _ = cal_obj.build()
+        msg = await q.message.reply_text('❗ Конец раньше начала! Попробуйте снова.', reply_markup=cal2)
+        context.user_data['range_msg_id'] = msg.message_id
+        return RANGE_END
 
-    context.user_data['range_end'] = end_dt.isoformat()
-    await q.message.delete()
-    await context.bot.send_message(
-        chat_id=q.message.chat.id,
-        text=f'Конец диапазона: *{year}-{month:02d}*',
-        parse_mode='Markdown'
-    )
-
-    # Усечённый прогноз
+    if 'range_msg_id' in context.user_data:
+        await context.bot.delete_message(chat_id=q.message.chat.id, message_id=context.user_data.pop('range_msg_id'))
+    context.user_data['range_end'] = result
+    await q.message.reply_text(f'Конец диапазона: {result.strftime("%Y-%m")}')
+    # Отрисовка усечённого прогноза
     df_pred = context.user_data['df_pred']
-    rs = pd.to_datetime(context.user_data['range_start'])
-    re = pd.to_datetime(context.user_data['range_end'])
-    df_slice = df_pred[(df_pred.index >= rs) & (df_pred.index <= re)]
-
-    # Заголовок (тот же формат, что в run_forecast)
-    key        = context.user_data['model_key']
-    model_name = MODEL_OPTIONS[key][0]
-    oil        = context.user_data['oil_source'].upper()
-    crises     = context.user_data.get('crises', [])
-    if crises:
-        items = [
-            f"{i}) {CRISIS_TYPES[c['type']]} {c['start'][:7]}–{c['end'][:7]}, "
-            f"шок:{'да' if c['shock'] else 'нет'}, инт.:{int(c['intensity']*100)}%"
-            for i, c in enumerate(crises, 1)
-        ]
-        crises_block = "\n".join(items)
-    else:
-        crises_block = "Без кризисов"
-    header = (
-        f"Модель: {model_name}; Нефть: {oil}\n"
-        f"Кризисы:\n{crises_block}"
-    )
-
-    fig, ax = plt.subplots(figsize=(14, 6))
-    ax.plot(df_slice.index, df_slice['Forecast'], '-', label='Прогноз', color='orange')
-    ax.set_ylim(0, 1200)
-    ax.set_ylabel('USD')
-    ax.set_title(header, loc='left')
-    ax.legend()
-    ax.grid(True)
-
+    df_slice = df_pred[(df_pred.index >= start_ts) & (df_pred.index <= end_ts)]
     buf = BytesIO()
+    fig, ax = plt.subplots(figsize=(14, 6))
+    ax.plot(df_slice.index, df_slice['Forecast'], '-', label='Прогноз')
+    ax.set_ylim(0, 1200)
+    ax.set_title(f'Прогноз с {start_ts.date()} по {end_ts.date()}')
+    ax.legend(); ax.grid(True)
     fig.savefig(buf, format='png', bbox_inches='tight'); buf.seek(0)
     await q.message.reply_photo(photo=buf)
 
+    # Кнопки дальнейших действий
     keyboard = [
         [InlineKeyboardButton("Повторить прогноз", callback_data="repeat")],
         [InlineKeyboardButton("Выбрать диапазон прогноза", callback_data="range")],
         [InlineKeyboardButton("Оставить отзыв", callback_data="feedback")],
-        [InlineKeyboardButton("Выход", callback_data="exit")],
+        [InlineKeyboardButton("Выход", callback_data="exit")]
     ]
     await q.message.reply_text('Что дальше?', reply_markup=InlineKeyboardMarkup(keyboard))
     return AFTER_FORECAST
@@ -876,10 +767,8 @@ if __name__ == '__main__':
         SELECT_PREDEFINED_CRISES:  [CallbackQueryHandler(predefined_crises_chosen)],
         ASK_NUM_CRISES:            [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_num_crises)],
         SELECT_CRISIS_TYPE:        [CallbackQueryHandler(select_crisis_type)],
-        SELECT_START_YEAR:  [CallbackQueryHandler(start_year_chosen)],
-        SELECT_START_MONTH: [CallbackQueryHandler(start_month_chosen)],
-        SELECT_END_YEAR:    [CallbackQueryHandler(end_year_chosen)],
-        SELECT_END_MONTH:   [CallbackQueryHandler(end_month_chosen)],
+        CALENDAR_START:            [CallbackQueryHandler(calendar_start)],
+        CALENDAR_END:              [CallbackQueryHandler(calendar_end)],
         INPUT_SHOCK:               [CallbackQueryHandler(shock_chosen, pattern='^shock_')],
         INPUT_INTENSITY:           [MessageHandler(filters.TEXT & ~filters.COMMAND, input_intensity)],
         AFTER_FORECAST:            [
@@ -888,11 +777,8 @@ if __name__ == '__main__':
             CallbackQueryHandler(feedback_start, pattern='^feedback$'),
             CallbackQueryHandler(exit_bot,       pattern='^exit$'),
         ],
-        RANGE_START:             [CallbackQueryHandler(range_start)],
-        SELECT_RANGE_START_YEAR: [CallbackQueryHandler(range_start_year_chosen)],
-        SELECT_RANGE_START_MONTH:[CallbackQueryHandler(range_start_month_chosen)],
-        SELECT_RANGE_END_YEAR:   [CallbackQueryHandler(range_end_year_chosen)],
-        SELECT_RANGE_END_MONTH:  [CallbackQueryHandler(range_end_month_chosen)],
+        RANGE_START:               [CallbackQueryHandler(range_end)],
+        RANGE_END:                 [CallbackQueryHandler(range_end)],
         FEEDBACK:                  [MessageHandler(filters.TEXT & ~filters.COMMAND, feedback_received)],
     },
     fallbacks=[CommandHandler('cancel', cancel)],
