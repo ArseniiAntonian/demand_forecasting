@@ -34,7 +34,7 @@ def forecast_prophet(data=None):
 
     # === Разбиение на train/test ===
     train = df[df['Date'] <= '2025-01-03'].copy()
-    test  = df[(df['Date'] >  '2025-01-03') & (df['Date'] <= '2030-01-03')].copy()
+    test  = df[(df['Date'] >  '2026-01-04') & (df['Date'] <= '2030-01-03')].copy()
 
     used_features = [
         'Oil_Lag1', 'Oil_SMA_3', 'Oil_Lag6', 'Oil_Lag12',
@@ -52,7 +52,7 @@ def forecast_prophet(data=None):
         data['Oil_Lag12']     = full_oil.shift(12).iloc[-n:].values
         data['Oil_Change_1m'] = full_oil.pct_change(1).iloc[-n:].values
         data['Log_Freight']   = np.nan
-        test = data.copy()
+        test = data[data['Date'] >= '2025-04-01'].copy()
 
     # === Подготовка для Prophet ===
     def prepare_df(df_part):
