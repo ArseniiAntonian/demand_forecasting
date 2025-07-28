@@ -35,7 +35,7 @@
   "dec_dropout": 0.0,
   "learning_rate": 0.001,
   "batch_size": 32,
-  "epochs": 100,
+  "epochs": 30,
   "k_attention": 6,
   "w_financial": 8.0,
   "w_pandemic": 1.0,
