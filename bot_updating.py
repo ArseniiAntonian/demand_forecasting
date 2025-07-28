@@ -127,7 +127,7 @@ def start_states():
         SELECT_CRISIS_TYPE:        [CallbackQueryHandler(select_crisis_type)],
         CALENDAR_START:            [CallbackQueryHandler(calendar_start)],
         CALENDAR_END:              [CallbackQueryHandler(calendar_end)],
-        INPUT_SHOCK:               [MessageHandler(filters.TEXT & ~filters.COMMAND, input_shock)],
+        INPUT_SHOCK:              [CallbackQueryHandler(shock_chosen, pattern='^shock_')],
         INPUT_INTENSITY:           [MessageHandler(filters.TEXT & ~filters.COMMAND, input_intensity)],
         AFTER_FORECAST:            [
             CallbackQueryHandler(repeat_forecast, pattern='^repeat$'),
@@ -350,7 +350,6 @@ async def select_crisis_type(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
     return CALENDAR_START
 
-
 async def calendar_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query; await q.answer()
     cal_obj = DetailedTelegramCalendar(
@@ -366,10 +365,15 @@ async def calendar_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cal2, _ = cal_obj.build()
         await q.message.reply_text('Неверный ввод даты начала. Выберите снова:', reply_markup=cal2)
         return CALENDAR_START
-    await q.edit_message_text(f'Дата начала: {result}')
+
+    # Сбрасываем день на 1 и сохраняем год-месяц
+    result = result.replace(day=1)
+    await q.edit_message_text(f'Дата начала: {result.strftime("%Y-%m")}')
     context.user_data['crises'][-1]['start'] = result.isoformat()
+
+    # Дальше выбор даты окончания
     cal2, _ = cal_obj.build()
-    await q.message.reply_text('Выберите дату окончания:', reply_markup=cal2)
+    await q.message.reply_text('Выберите месяц и год окончания:', reply_markup=cal2)
     return CALENDAR_END
 
 
@@ -462,23 +466,6 @@ async def range_end(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await q.message.reply_text('Что дальше?', reply_markup=InlineKeyboardMarkup(keyboard))
     return AFTER_FORECAST
 
-async def input_shock(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip().lower()
-    if text in ('да', 'yes', 'y'):
-        shock_val = 1.0
-    elif text in ('нет', 'no', 'n'):
-        shock_val = 0.0
-    else:
-        await update.message.reply_text('Пожалуйста, ответьте «да» или «нет».')
-        return INPUT_SHOCK
-
-    context.user_data['crises'][-1]['shock'] = shock_val
-
-    # теперь задаём вопрос по интенсивности как раньше
-    await update.message.reply_text('Введите интенсивность кризиса в процентах (0–100):')
-    return INPUT_INTENSITY
-
-
 async def shock_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
@@ -496,7 +483,7 @@ async def shock_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Спрашиваем интенсивность и сохраняем его message_id
     int_msg = await q.message.reply_text(
-        'Введите интенсивность кризиса в процентах (0–100):'
+        'Введите интенсивность кризиса (Интенсивность в процентах (0–100) — отражает силу и длительность воздействия.):'
     )
     context.user_data['intensity_msg_id'] = int_msg.message_id
 
@@ -619,41 +606,26 @@ async def run_forecast(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def range_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query; await q.answer()
-    cal, _ = DetailedTelegramCalendar(
-        min_date=date(2025, 1, 1),
-        max_date=date(2030, 12, 31)
-    ).build()
-    msg = await q.message.reply_text(
-        'Выберите начало диапазона прогноза:',
-        reply_markup=cal
-    )
+    cal, _ = DetailedTelegramCalendar(min_date=date(2025, 1, 1), max_date=date(2030, 12, 31)).build()
+    msg = await q.message.reply_text('Выберите месяц и год начала диапазона прогноза:', reply_markup=cal)
     context.user_data['range_msg_id'] = msg.message_id
     return RANGE_START
 
-# Обработчик выбора даты окончания кризиса
-# Обработчик выбора даты окончания кризиса
 async def calendar_end(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer()
-    cal_obj = DetailedTelegramCalendar(
-        min_date=date(2025, 1, 1),
-        max_date=date(2030, 12, 31)
-    )
+    q = update.callback_query; await q.answer()
+    cal_obj = DetailedTelegramCalendar(min_date=date(2025, 1, 1), max_date=date(2030, 12, 31))
     result, cal, step = cal_obj.process(q.data)
-
-    # Навигация по календарю
     if result is None and cal:
         await q.edit_message_text(text=step, reply_markup=cal)
         return CALENDAR_END
-
-    # Неверный ввод (без календаря)
     if result is None and cal is None:
         await context.bot.delete_message(chat_id=q.message.chat.id, message_id=q.message.message_id)
         cal2, _ = cal_obj.build()
         await q.message.reply_text('Неверный ввод даты окончания. Выберите снова:', reply_markup=cal2)
         return CALENDAR_END
 
-    # Конвертируем обе даты в Timestamp и проверяем порядок
+    # Сбрасываем день и проверяем порядок
+    result = result.replace(day=1)
     start_ts = pd.to_datetime(context.user_data['crises'][-1]['start'])
     end_ts   = pd.to_datetime(result)
     if end_ts < start_ts:
@@ -662,89 +634,61 @@ async def calendar_end(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.message.reply_text('Дата окончания раньше начала! Выберите снова:', reply_markup=cal2)
         return CALENDAR_END
 
-    # Фиксируем дату окончания
-    await q.edit_message_text(f'Дата окончания: {result}')
+    # Фиксируем окончание
+    await q.edit_message_text(f'Дата окончания: {result.strftime("%Y-%m")}')
     context.user_data['crises'][-1]['end'] = result.isoformat()
 
-    # Дальше — выбор шока через кнопки
+    # Переход к выбору шока
     kb = [
-        [
-            InlineKeyboardButton('Да',  callback_data='shock_yes'),
-            InlineKeyboardButton('Нет', callback_data='shock_no')
-        ]
+        [InlineKeyboardButton('Да', callback_data='shock_yes'),
+         InlineKeyboardButton('Нет', callback_data='shock_no')]
     ]
-    await q.message.reply_text(
-        'Шоковый кризис? Нажмите кнопку:',
-        reply_markup=InlineKeyboardMarkup(kb)
-    )
+    await q.message.reply_text('Шоковый кризис? Нажмите кнопку:', reply_markup=InlineKeyboardMarkup(kb))
     return INPUT_SHOCK
 
-
-
-# Обработчик выбора конца диапазона прогноза
 async def range_end(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer()
-    cal_obj = DetailedTelegramCalendar(
-        min_date=date(2025, 1, 1),
-        max_date=date(2030, 12, 31)
-    )
+    q = update.callback_query; await q.answer()
+    cal_obj = DetailedTelegramCalendar(min_date=date(2025, 1, 1), max_date=date(2030, 12, 31))
     result, cal, step = cal_obj.process(q.data)
-
-    # Навигация по календарю
     if result is None and cal:
         await q.edit_message_text(text=step, reply_markup=cal)
         return RANGE_END
-
-    # Неверный ввод — удаляем старый запрос и показываем календарь заново
     if result is None and cal is None:
         if 'range_msg_id' in context.user_data:
-            await context.bot.delete_message(
-                chat_id=q.message.chat.id,
-                message_id=context.user_data.pop('range_msg_id')
-            )
+            await context.bot.delete_message(chat_id=q.message.chat.id, message_id=context.user_data.pop('range_msg_id'))
         cal2, _ = cal_obj.build()
         msg = await q.message.reply_text('❗ Неверный ввод. Попробуйте снова.', reply_markup=cal2)
         context.user_data['range_msg_id'] = msg.message_id
         return RANGE_END
 
-    # Если ещё не зафиксирован старт диапазона — сохраняем его
+    # Если первый выбор — начало диапазона
     if 'range_start' not in context.user_data:
         if 'range_msg_id' in context.user_data:
-            await context.bot.delete_message(
-                chat_id=q.message.chat.id,
-                message_id=context.user_data.pop('range_msg_id')
-            )
+            await context.bot.delete_message(chat_id=q.message.chat.id, message_id=context.user_data.pop('range_msg_id'))
+        result = result.replace(day=1)
         context.user_data['range_start'] = result
-        await q.message.reply_text(f'Начало диапазона: {result}')
+        await q.message.reply_text(f'Начало диапазона: {result.strftime("%Y-%m")}')
         cal2, _ = cal_obj.build()
-        msg = await q.message.reply_text('Теперь выберите конец диапазона:', reply_markup=cal2)
+        msg = await q.message.reply_text('Теперь выберите месяц и год конца диапазона:', reply_markup=cal2)
         context.user_data['range_msg_id'] = msg.message_id
         return RANGE_END
 
-    # Фиксируем конец диапазона и рисуем график
+    # Фиксируем конец диапазона
+    result = result.replace(day=1)
     start_ts = pd.to_datetime(context.user_data['range_start'])
-    end_ts = pd.to_datetime(result)
+    end_ts   = pd.to_datetime(result)
     if end_ts < start_ts:
         if 'range_msg_id' in context.user_data:
-            await context.bot.delete_message(
-                chat_id=q.message.chat.id,
-                message_id=context.user_data.pop('range_msg_id')
-            )
+            await context.bot.delete_message(chat_id=q.message.chat.id, message_id=context.user_data.pop('range_msg_id'))
         cal2, _ = cal_obj.build()
         msg = await q.message.reply_text('❗ Конец раньше начала! Попробуйте снова.', reply_markup=cal2)
         context.user_data['range_msg_id'] = msg.message_id
         return RANGE_END
 
-    # Удаляем сообщение-календарь
     if 'range_msg_id' in context.user_data:
-        await context.bot.delete_message(
-            chat_id=q.message.chat.id,
-            message_id=context.user_data.pop('range_msg_id')
-        )
+        await context.bot.delete_message(chat_id=q.message.chat.id, message_id=context.user_data.pop('range_msg_id'))
     context.user_data['range_end'] = result
-    await q.message.reply_text(f'Конец диапазона: {result}')
-
+    await q.message.reply_text(f'Конец диапазона: {result.strftime("%Y-%m")}')
     # Отрисовка усечённого прогноза
     df_pred = context.user_data['df_pred']
     df_slice = df_pred[(df_pred.index >= start_ts) & (df_pred.index <= end_ts)]
