@@ -107,6 +107,9 @@ def forecast_last_data_w_exogs(df_exogs: pd.DataFrame) -> tuple[pd.DataFrame, pd
     """
     # 1) История
     df_hist = load_data('data/ML_with_crisis.csv')
+    df_sin_cos = pd.read_csv('data/sin_cos.csv')
+    df_sin_cos['Date'] = pd.to_datetime(df_sin_cos['Date'])
+    df_sin_cos.set_index('Date', inplace=True)
 
     # 2) Оригинальные списки признаков
     time_cols = [
@@ -121,7 +124,7 @@ def forecast_last_data_w_exogs(df_exogs: pd.DataFrame) -> tuple[pd.DataFrame, pd
         'has_crisis','crisis_intensity','crisis_shock',
         'crisis_type_Financial','crisis_type_Pandemic',
         'crisis_type_Geopolitical','crisis_type_Natural',
-        'crisis_type_Logistical'
+        'crisis_type_Logistical', 'sin_month', 'cos_month'
     ]
 
     # 3) Загружаем скейлеры и модель (те же пути, что вы использовали в save_artifacts)
@@ -145,7 +148,10 @@ def forecast_last_data_w_exogs(df_exogs: pd.DataFrame) -> tuple[pd.DataFrame, pd
     # 6) Экзогены
     df_exogs = df_exogs.copy()
     df_exogs['Date'] = pd.to_datetime(df_exogs['Date'])
+    
     df_exogs.set_index('Date', inplace=True)
+    df_exogs = df_exogs.join(df_sin_cos)
+    print(df_exogs.head())  
     future_exog = (
         df_exogs
         .reindex(forecast_dates, method='ffill')[cat_cols]
@@ -153,25 +159,22 @@ def forecast_last_data_w_exogs(df_exogs: pd.DataFrame) -> tuple[pd.DataFrame, pd
         .values
     )
     exog_seq = future_exog.reshape(1, N_OUTPUT, len(cat_cols))
-
     # 7) Собираем и грузим TCN-модель
     model = build_model_exogs(
-    n_input               = N_INPUT,
-    n_features            = len(feat_cols),
-    n_output              = N_OUTPUT,
-    n_exog                = len(cat_cols),
-    enc_filters           = best_params['enc_filters'],
-    enc_kernel_size       = best_params['enc_kernel_size'],
-    enc_dilations_groups  = best_params['enc_dilations'],
-    enc_dropout           = best_params['enc_dropout'],
-    dec_filters           = best_params['dec_filters'],
-    dec_kernel_size       = best_params['dec_kernel_size'],
-    dec_dilations_groups  = best_params['dec_dilations'],
-    dec_dropout           = best_params['dec_dropout'],
-    learning_rate         = best_params['learning_rate'],
-    k_attention           = best_params['k_attention'],
-    # если нужно, здесь же можно задать w_financial и прочие
+            N_INPUT, len(feat_cols), N_OUTPUT, len(cat_cols),
+            best_params['enc_filters'], best_params['enc_kernel_size'], best_params['enc_dilations'], best_params['enc_dropout'],
+            best_params['dec_filters'], best_params['dec_kernel_size'], best_params['dec_dilations'], best_params['dec_dropout'],
+            best_params['learning_rate'], w_financial=best_params['w_financial'], w_geopolitical=best_params['w_geopolitical'],
+            w_natural=best_params['w_natural'], w_logistical=best_params['w_logistical'],
+            k_attention=best_params.get('k_attention', 2),
+            wavelet=best_params.get('wavelet', 'db4'), decomposition_level= best_params.get('decomposition_level', 1),
+            thresholding=best_params.get('thresholding', 'soft'), threshold_sigma=best_params.get('threshold_sigma', 2.0),
+            wavelet_neurons=best_params.get('wavelet_neurons', 16), init_scale= best_params.get('init_scale', 1.0),
+            init_shift=best_params.get('init_shift', 0.0), scale_regularization= best_params.get('scale_regularization', 0.0),
+            shift_regularization=best_params.get('shift_regularization', 0.0)
+    
     )
+
     model.load_weights(MODEL_PATH)
 
     # 8) Прогноз и развёртка

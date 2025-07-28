@@ -596,7 +596,7 @@ def filter_and_apply_crises(
 
     return df
 
-def main(train: bool = True, tune: bool = False, simulate: bool = False):
+def main(train: bool = True, tune: bool = False):
     """Main function to run the TCN model with exogenous variables.
     Args:
         train (bool): If True, trains the model.
@@ -612,7 +612,7 @@ def main(train: bool = True, tune: bool = False, simulate: bool = False):
         'Oil_Lag1','Oil_Lag2',
         'Oil_Lag6','Freight_Lag6',
     ]
-    cat_cols = ['has_crisis_y','crisis_intensity','crisis_shock','crisis_type_Financial','crisis_type_Pandemic','crisis_type_Geopolitical','crisis_type_Natural','crisis_type_Logistical']
+    cat_cols = ['has_crisis_y','crisis_intensity','crisis_shock','crisis_type_Financial','crisis_type_Pandemic','crisis_type_Geopolitical','crisis_type_Natural','crisis_type_Logistical', 'sin_month', 'cos_month']
 
     # 1) Preprocess + split + scale + exog
     (X_train, X_val, X_test), (y_train, y_val, y_test), \
@@ -769,70 +769,6 @@ def main(train: bool = True, tune: bool = False, simulate: bool = False):
         )
         save_artifacts(final_model, scaler_X, scaler_y)
 
-    elif simulate:
-        # --- Inference-only: load model and weights ---
-        with open('belG/best_params_exogs_5y.json', 'r') as f:
-            best_params = json.load(f)
-        final_model = build_model(
-            N_INPUT, X_train.shape[1], N_OUTPUT, exog_train.shape[1],
-            best_params['enc_filters'], best_params['enc_kernel_size'],
-            best_params['enc_dilations'], best_params['enc_dropout'],
-            best_params['dec_filters'], best_params['dec_kernel_size'],
-            best_params['dec_dilations'], best_params['dec_dropout'],
-            best_params['learning_rate'], k_attention=best_params['k_attention']
-        )
-        final_model.load_weights(MODEL_PATH)
-
-        crisis_events = pd.DataFrame([
-            {
-                "Start":     "2008-09-01",
-                "End":       "2009-03-31",
-                "Name":      "Global Financial Crisis",
-                "Type":      "Financial",
-                "Intensity": 0.8,
-                "Shock":     1.2
-            },
-            {
-                "Start":     "2020-03-01",
-                "End":       "2021-06-30",
-                "Name":      "COVID-19 Pandemic",
-                "Type":      "Pandemic",
-                "Intensity": 1.0,
-                "Shock":     0.9
-            },
-            {
-                "Start":     "2014-03-01",
-                "End":       "2015-12-31",
-                "Name":      "Ukraine Sanctions Shock",
-                "Type":      "Geopolitical",
-                "Intensity": 0.6,
-                "Shock":     0.7
-            },
-            {
-                "Start":     "2011-03-11",
-                "End":       "2011-05-31",
-                "Name":      "Tohoku Earthquake & Tsunami",
-                "Type":      "Natural",
-                "Intensity": 0.5,
-                "Shock":     0.4
-            },
-            {
-                "Start":     "2022-06-01",
-                "End":       "2022-08-31",
-                "Name":      "Suez Canal Blockage",
-                "Type":      "Logistical",
-                "Intensity": 0.4,
-                "Shock":     0.3
-            }
-        ])
-
-        df_exog_filt = filter_and_apply_crises(
-            dec_exog_test,
-            crisis_events,
-            exclude_types=["Geopolitical", "Logistical", ""],         # отключить геополитические
-            exclude_period=("2020-03-01","2020-12-31"),  # отключить события 2020 года
-        )
-
     else:
         # --- Inference-only: load model and weights ---
         with open('belG/best_params_exogs_5y.json', 'r') as f:
@@ -935,4 +871,4 @@ def main(train: bool = True, tune: bool = False, simulate: bool = False):
 
 
 if __name__ == '__main__':
-    main(train=True, tune=True, simulate=False)
+    main(train=True, tune=False)
