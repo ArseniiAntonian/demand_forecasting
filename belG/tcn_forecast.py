@@ -158,6 +158,7 @@ def forecast_last_data_w_exogs(df_exogs: pd.DataFrame) -> tuple[pd.DataFrame, pd
         .astype(np.float32)
         .values
     )
+    df_exogs.dropna(inplace=True)
     exog_seq = future_exog.reshape(1, N_OUTPUT, len(cat_cols))
     # 7) Собираем и грузим TCN-модель
     model = build_model_exogs(
