@@ -16,6 +16,9 @@ from keras.optimizers import Adam
 import time
 from metrics import TrendMetrics
 import pywt
+from keras.models import load_model
+
+import sys
 
 # Параметры модели и путям к файлам
 N_INPUT = 12
@@ -241,6 +244,22 @@ class WaveletTransformLayer(tf.keras.layers.Layer):
 
         # применяем по каждому примеру в батче
         return tf.map_fn(map_fn, inputs)
+    
+    def get_config(self):
+        config = super().get_config()
+        config.update({
+            "wavelet": self.wavelet,
+            "level": self.level,
+            "thresholding": self.thresholding,
+            "threshold_sigma": self.threshold_sigma,
+            "n_neurons": self.n_neurons,
+            "init_scale": self.init_scale,
+            "init_shift": self.init_shift,
+            "scale_reg": self.scale_reg,
+            "shift_reg": self.shift_reg,
+            "mode": self.mode
+        })
+        return config
 
 def build_model(
     n_input: int,
@@ -334,7 +353,7 @@ def save_artifacts(
     scaler_X: StandardScaler,
     scaler_y: StandardScaler
 ) -> None:
-    model.save_weights(MODEL_PATH)
+    model.save(MODEL_PATH)
     joblib.dump(scaler_X, SCALER_X_PATH)
     joblib.dump(scaler_y, SCALER_Y_PATH)
     print(f"Saved model weights to '{MODEL_PATH}', scalers to '{SCALER_X_PATH}', '{SCALER_Y_PATH}'")
@@ -355,13 +374,7 @@ def load_artifacts(
     dec_dropout: float,
     learning_rate: float
 ) -> tuple:
-    model = build_model(
-        n_input, n_features, n_output, n_exog,
-        enc_filters, enc_kernel_size, enc_dilations, enc_dropout,
-        dec_filters, dec_kernel_size, dec_dilations, dec_dropout,
-        learning_rate
-    )
-    model.load_weights(MODEL_PATH)
+    model = load_model(MODEL_PATH)
     scaler_X = joblib.load(SCALER_X_PATH)
     scaler_y = joblib.load(SCALER_Y_PATH)
     print("Loaded model and scalers from disk.")
@@ -773,22 +786,7 @@ def main(train: bool = True, tune: bool = False):
         # --- Inference-only: load model and weights ---
         with open('belG/best_params_exogs_5y.json', 'r') as f:
             best_params = json.load(f)
-            final_model = build_model(
-                N_INPUT, X_train.shape[1], N_OUTPUT, exog_train.shape[1],
-                best_params['enc_filters'], best_params['enc_kernel_size'],
-                best_params['enc_dilations'], best_params['enc_dropout'],
-                best_params['dec_filters'], best_params['dec_kernel_size'],
-                best_params['dec_dilations'], best_params['dec_dropout'],
-                best_params['learning_rate'], k_attention=best_params['k_attention'],
-                w_financial=best_params['w_financial'], w_geopolitical=best_params['w_geopolitical'],
-                w_natural=best_params['w_natural'], w_logistical=best_params['w_logistical'],
-                wavelet=best_params['wavelet'], decomposition_level=best_params['decomposition_level'],
-                thresholding=best_params['thresholding'], threshold_sigma=best_params['threshold_sigma'],
-                wavelet_neurons=best_params['wavelet_neurons'], init_scale=best_params['init_scale'],
-                init_shift=best_params['init_shift'], scale_regularization=best_params['scale_regularization'],
-                shift_regularization=best_params['shift_regularization']
-        )
-        final_model.load_weights(MODEL_PATH)
+            final_model = load_model(MODEL_PATH)
 
     # --- Final evaluation on test set ---
     # Подготавливаем y_test с масками

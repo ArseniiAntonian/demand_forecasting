@@ -135,6 +135,8 @@ def forecast_last_data_w_exogs(df_exogs: pd.DataFrame) -> tuple[pd.DataFrame, pd
 
     # 4) Берём последние N_INPUT строк по тем же 7 фичам, что и на тренировке
     last_X = df_hist[feat_cols].iloc[-N_INPUT:].astype(np.float32).values
+    print(df_hist.head())
+    print(last_X.shape)
     # теперь scaler_X.n_features_in_ == last_X.shape[1] == 7
     enc_seq = scaler_X.transform(last_X).reshape(1, N_INPUT, len(feat_cols))
 
@@ -180,6 +182,7 @@ def forecast_last_data_w_exogs(df_exogs: pd.DataFrame) -> tuple[pd.DataFrame, pd
 
     # 8) Прогноз и развёртка
     pred_scaled = model.predict([enc_seq, exog_seq])[0]     # (N_OUTPUT, 1)
+    print(f"enc_seeq: {enc_seq.shape}    exog_seq: {exog_seq.shape}")
     pred = scaler_y.inverse_transform(pred_scaled)          # (N_OUTPUT, 1)
 
     # 9) Итоговый DataFrame
