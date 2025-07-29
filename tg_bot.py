@@ -21,6 +21,17 @@ from arsen.gb_forecast import forecast_lgb
 logging.basicConfig(level=logging.INFO)
 BOT_TOKEN = "8144080240:AAEZelQNgc-OGGp-vdyQKT7eho_nKAWx9j4"
 
+USERS_FILE = 'users.txt'
+
+def load_users():
+    if os.path.exists(USERS_FILE):
+        with open(USERS_FILE, 'r') as f:
+            return set(line.strip() for line in f if line.strip())
+    return set()
+
+def save_user(user_id):
+    with open(USERS_FILE, 'a') as f:
+        f.write(f"{user_id}\n")
 (
     SELECT_MODEL,
     SELECT_OIL_SOURCE,
@@ -150,6 +161,12 @@ def start_states():
 # Entry point
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message or update.callback_query.message
+    user_id = str(update.effective_user.id)
+    users = load_users()
+    is_new_user = user_id not in users
+    if is_new_user:
+        save_user(user_id)
+        users.add(user_id)
     if update.callback_query:
         await update.callback_query.answer()
     welcome = (
