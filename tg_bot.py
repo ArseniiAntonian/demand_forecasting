@@ -169,6 +169,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         users.add(user_id)
     if update.callback_query:
         await update.callback_query.answer()
+
     welcome = (
         "Добро пожаловать в бот-прогнозист фрахтовых цен!\n\n"
         "Что умеет бот:\n"
@@ -186,7 +187,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "3️⃣ Шаг 3: Укажите кризисы, которые следует учесть:\n"
         "   • Вы можете:\n"
         "     – Выбрать из готового списка (до 7 кризисов)\n"
-        "     – И/Или ввести собственные сценарии вручную\n"
+        "     – И/или ввести собственные сценарии вручную\n"
         "   • Для каждого кризиса указываются:\n"
         "     – Тип (финансовый, геополитический и т. д.)\n"
         "     – Дата начала и окончания\n"
@@ -197,14 +198,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "   • «Выбрать интервал прогноза» — посмотреть прогноз за выбранный период.\n"
         "   • «Оставить отзыв» — поделиться впечатлениями.\n"
         "   • «Выход» — завершить работу бота.\n\n"
-        "После прогноза вы сможете вернуться и снова выбрать модель, указать новые кризисы или просто выйти."
+        "После прогноза вы сможете вернуться и снова выбрать модель, указать новые кризисы или просто выйти.\n\n"
+        "*P.S. Если бот не отвечает, перезапустите его через команду /start*"
     )
 
-    await msg.reply_text(welcome)
+    await msg.reply_text(welcome, parse_mode="Markdown")
+
     kb = [[InlineKeyboardButton(name, callback_data=key)]
-          for key,(name,_) in MODEL_OPTIONS.items()]
+          for key, (name, _) in MODEL_OPTIONS.items()]
     await msg.reply_text('⏩ Выберите модель:', reply_markup=InlineKeyboardMarkup(kb))
+
     return SELECT_MODEL
+
 
 async def model_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
