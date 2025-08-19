@@ -823,7 +823,7 @@ async def range_end_month_chosen(update: Update, context: ContextTypes.DEFAULT_T
 
     fig, ax = plt.subplots(figsize=(14, 6))
     ax.plot(df_slice.index, df_slice['Forecast'], '-', label='Прогноз', color='orange')
-    ax.set_ylim(0, 1200)
+    ax.set_ylim(0, 1700)
     ax.set_ylabel('USD')
     ax.set_title(header, loc='left')
     ax.legend()
